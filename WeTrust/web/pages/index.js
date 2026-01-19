@@ -27,15 +27,11 @@ export default function Home() {
 
     try {
       setLoading(true);
-const token = getToken();
-const res = await fetch(`${API_BASE}/requests`, {
+await apiFetch("/requests", {
   method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {})
-  },
   body: JSON.stringify({ description, city }),
 });
+
       setDescription("");
       setCity("");
       setFeedback("Richiesta inviata ✅ La trovi nella pagina Richieste.");
@@ -65,7 +61,7 @@ const res = await fetch(`${API_BASE}/requests`, {
             </p>
 
             {!ready ? null : user ? (
-              <p className="pill">Sei dentro con Trust-ID: <strong>{user.phone}</strong></p>
+              <p className="pill">Sei dentro con Trust-ID: <strong>{user.phone || user.email}</strong></p>
             ) : (
               <p className="pill">
                 Per pubblicare/accettare richieste e chattare:{" "}
