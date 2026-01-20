@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Layout from "../../components/Layout";
-import { api } from "../../lib/api";
+import { apiFetch } from "../../lib/api";
 import { useRouter } from "next/router";
 
 export default function ChatRoom() {
@@ -14,7 +14,7 @@ export default function ChatRoom() {
   async function load() {
     if (!id) return;
     try {
-      const data = await api(`/matches/${id}/messages`);
+      const data = await apiFetch(`/matches/${id}/messages`);
       setList(data.messages || []);
       setErr("");
     } catch (e) {
@@ -34,7 +34,10 @@ export default function ChatRoom() {
     e.preventDefault();
     if (!text.trim()) return;
     try {
-      await api(`/matches/${id}/messages`, { method: "POST", body: { text } });
+      await apiFetch(`/matches/${id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      });
       setText("");
       await load();
     } catch (e2) {

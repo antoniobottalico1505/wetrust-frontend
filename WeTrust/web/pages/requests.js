@@ -22,7 +22,6 @@ export default function RequestsPage() {
 
   async function accept(id) {
     try {
-      // ✅ fix: api non esiste, usa apiFetch
       await apiFetch(`/requests/${id}/accept`, { method: "POST" });
       await load();
       alert("Accettata. Vai su Chat.");
