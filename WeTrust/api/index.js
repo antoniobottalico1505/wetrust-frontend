@@ -125,6 +125,9 @@ function safeNameForStream(user) {
 async function start() {
   const app = fastify({ logger: true });
 
+app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
+app.get("/health", async () => ({ ok: true }));
+
   await app.register(cors, { origin: true });
   await app.register(helmet);
   await app.register(rateLimit, { max: 200, timeWindow: "1 minute" });
@@ -474,8 +477,9 @@ async function start() {
   });
 
   // LISTEN
-  await app.listen({ port: PORT, host: HOST });
-}
+ const port = process.env.PORT || 4000;
+await app.listen({ port, host: "0.0.0.0" });
+
 
 start().catch((err) => {
   console.error(err);
