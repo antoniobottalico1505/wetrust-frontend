@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
+
 export default function RequestsPage() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -21,7 +22,8 @@ export default function RequestsPage() {
 
   async function accept(id) {
     try {
-      await api(`/requests/${id}/accept`, { method: "POST" });
+      // ✅ fix: api non esiste, usa apiFetch
+      await apiFetch(`/requests/${id}/accept`, { method: "POST" });
       await load();
       alert("Accettata. Vai su Chat.");
     } catch (e) {
