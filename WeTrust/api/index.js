@@ -126,7 +126,6 @@ async function start() {
   const app = fastify({ logger: true });
 
 app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
-app.get("/health", async () => ({ ok: true }));
 
   await app.register(cors, { origin: true });
   await app.register(helmet);
@@ -477,8 +476,7 @@ app.get("/health", async () => ({ ok: true }));
   });
 
   // LISTEN
- const port = process.env.PORT || 10000;
-await app.listen({ port, host: "0.0.0.0" });
+  await app.listen({ port: PORT, host: HOST });
 }
 
 start().catch((err) => {
