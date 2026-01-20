@@ -5,7 +5,10 @@ import { AuthContext } from "./_app";
 import Link from "next/link";
 
 export default function Home() {
-  const [user, ready] = useContext(AuthContext);
+  // Il Provider in _app passa [user, setUser, ready]
+  // Qui ci servono user e ready
+  const [user, , ready] = useContext(AuthContext);
+
   const [description, setDescription] = useState("");
   const [city, setCity] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,16 +24,18 @@ export default function Home() {
     }
 
     if (!user) {
-      setFeedback("Prima accedi (SMS) per pubblicare una richiesta.");
+      setFeedback("Prima accedi per pubblicare una richiesta.");
       return;
     }
 
     try {
       setLoading(true);
-await apiFetch("/requests", {
-  method: "POST",
-  body: JSON.stringify({ description, city }),
-});
+
+      // ✅ Niente getToken, niente API_BASE: ci pensa apiFetch
+      await apiFetch("/requests", {
+        method: "POST",
+        body: JSON.stringify({ description, city }),
+      });
 
       setDescription("");
       setCity("");
@@ -61,11 +66,13 @@ await apiFetch("/requests", {
             </p>
 
             {!ready ? null : user ? (
-              <p className="pill">Sei dentro con Trust-ID: <strong>{user.phone || user.email}</strong></p>
+              <p className="pill">
+                Sei dentro con Trust-ID: <strong>{user.phone || user.email}</strong>
+              </p>
             ) : (
               <p className="pill">
                 Per pubblicare/accettare richieste e chattare:{" "}
-                <Link href="/login" className="link">accedi via SMS</Link>.
+                <Link href="/login" className="link">accedi</Link>.
               </p>
             )}
 
@@ -73,12 +80,14 @@ await apiFetch("/requests", {
               <label className="need-label">
                 Scrivi qui il tuo bisogno (pulsante <strong>I need</strong>):
               </label>
+
               <textarea
                 className="need-textarea"
                 placeholder="Es. Ho bisogno di qualcuno che accompagni mia madre dal medico domani mattina…"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
+
               <div className="need-row">
                 <input
                   className="need-city"
@@ -86,10 +95,12 @@ await apiFetch("/requests", {
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                 />
+
                 <button type="submit" className="btn-primary" disabled={loading}>
                   {loading ? "Invio…" : "I need"}
                 </button>
               </div>
+
               {feedback && <p className="need-feedback">{feedback}</p>}
             </form>
           </div>
@@ -97,17 +108,20 @@ await apiFetch("/requests", {
           <div className="hero-right">
             <div className="card">
               <div className="card-header">Uno sguardo all’app</div>
+
               <div className="bubble">
                 <div className="bubble-label">Esempio di richiesta</div>
                 <div className="bubble-text">
                   «Mi serve qualcuno che accompagni mia madre dal medico domani mattina.»
                 </div>
               </div>
+
               <ul className="hero-list">
                 <li>L’AI capisce il bisogno, la zona e l’urgenza.</li>
                 <li>Matching con persone verificate (Trust-ID).</li>
                 <li>Pagamento bloccato e rilasciato solo a lavoro confermato.</li>
               </ul>
+
               <div className="ctaRow">
                 <Link href="/requests" className="cta">Vedi le richieste</Link>
                 <Link href="/profile" className="cta ghost">Profilo</Link>
@@ -122,7 +136,7 @@ await apiFetch("/requests", {
         <div className="grid3">
           <div className="card2">
             <h3>Trust</h3>
-            <p>Accesso con Email + Password oppure SMS. Le richieste possono anche essere inoltrate via SMS.</p>
+            <p>Accesso con Email + Password oppure SMS.</p>
           </div>
           <div className="card2">
             <h3>Help</h3>
@@ -130,7 +144,7 @@ await apiFetch("/requests", {
           </div>
           <div className="card2">
             <h3>Pay</h3>
-            <p>Pagamento bloccato (hold) e rilascio con conferma. Fee automatica per WeTrust.</p>
+            <p>Pagamento bloccato (hold) e rilascio con conferma.</p>
           </div>
         </div>
       </section>

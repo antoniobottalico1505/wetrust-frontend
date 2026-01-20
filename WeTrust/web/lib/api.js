@@ -27,3 +27,6 @@ export async function apiFetch(path, opts = {}) {
 }
 
 export { API_BASE };
+
+export const api = apiFetch;
+

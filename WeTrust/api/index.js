@@ -325,9 +325,76 @@ async function start() {
     }
   });
 
+app.post("/payments/checkout-session", requireAuth, async (req, res) => {
+  const { amountCents, requestId } = req.body;
+
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    line_items: [{
+      price_data: {
+        currency: process.env.CURRENCY || "eur",
+        product_data: { name: `WeTrust - richiesta ${requestId}` },
+        unit_amount: amountCents,
+      },
+      quantity: 1,
+    }],
+    success_url: `${process.env.FRONTEND_URL}/pay/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.FRONTEND_URL}/pay/cancel`,
+    payment_intent_data: {
+      capture_method: "manual", // HOLD vero
+    },
+    metadata: { requestId, payerUserId: req.user.id },
+  });
+
+  // salva nel DB: session.id, requestId, amountCents, status="AUTHORIZING"
+  res.json({ url: session.url, sessionId: session.id });
+});
+
+app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (e) {
+    return res.status(400).send(`Signature error: ${e.message}`);
+  }
+
+  // salva event.id per idempotenza
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    // salva session.payment_intent nel DB, status="REQUIRES_CAPTURE"
+  }
+
+  if (event.type === "payment_intent.amount_capturable_updated") {
+    const pi = event.data.object;
+    // status="REQUIRES_CAPTURE" confermato
+  }
+
+  if (event.type === "payment_intent.succeeded") {
+    const pi = event.data.object;
+    // status="CAPTURED" (pagato davvero)
+  }
+
+  if (event.type === "payment_intent.payment_failed") {
+    // status="FAILED"
+  }
+
+  res.json({ received: true });
+});
+
+app.post("/payments/capture", requireAuth, async (req, res) => {
+  const { paymentIntentId } = req.body;
+
+  const pi = await stripe.paymentIntents.capture(paymentIntentId);
+  res.json({ ok: true, paymentIntent: pi });
+});
+
   // PORTA PER LOCALE/RENDER
-  const PORT = process.env.PORT || process.env.API_PORT || 4000;
-  const HOST = "0.0.0.0";
+  const PORT = process.env.PORT || 10000;
+app.listen(PORT, "0.0.0.0", () => console.log("API listening on", PORT));
+app.get("/health", (req, res) => res.json({ ok: true }));
 
   try {
     const address = await app.listen({ port: PORT, host: HOST });
