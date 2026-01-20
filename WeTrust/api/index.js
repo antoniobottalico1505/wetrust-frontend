@@ -325,30 +325,49 @@ async function start() {
     }
   });
 
-app.post("/payments/checkout-session", requireAuth, async (req, res) => {
-  const { amountCents, requestId } = req.body;
+app.post(
+  "/payments/checkout-session",
+  { preHandler: [requireAuth] },
+  async (req, reply) => {
+    try {
+      const { amountCents, requestId } = req.body || {};
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    line_items: [{
-      price_data: {
-        currency: process.env.CURRENCY || "eur",
-        product_data: { name: `WeTrust - richiesta ${requestId}` },
-        unit_amount: amountCents,
-      },
-      quantity: 1,
-    }],
-    success_url: `${process.env.FRONTEND_URL}/pay/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.FRONTEND_URL}/pay/cancel`,
-    payment_intent_data: {
-      capture_method: "manual", // HOLD vero
-    },
-    metadata: { requestId, payerUserId: req.user.id },
-  });
+      if (!amountCents || !requestId) {
+        return reply.code(400).send({ ok: false, error: "amountCents e requestId sono obbligatori" });
+      }
 
-  // salva nel DB: session.id, requestId, amountCents, status="AUTHORIZING"
-  res.json({ url: session.url, sessionId: session.id });
-});
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        line_items: [
+          {
+            price_data: {
+              currency: process.env.CURRENCY || "eur",
+              product_data: { name: `WeTrust - richiesta ${requestId}` },
+              unit_amount: Number(amountCents),
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${process.env.FRONTEND_URL}/pay/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.FRONTEND_URL}/pay/cancel`,
+        payment_intent_data: {
+          capture_method: "manual", // HOLD vero
+        },
+        metadata: {
+          requestId: String(requestId),
+          payerUserId: String(req.user?.id || ""),
+        },
+      });
+
+      // TODO: salva nel DB: session.id, requestId, amountCents, status="AUTHORIZING"
+
+      return reply.send({ ok: true, url: session.url, sessionId: session.id });
+    } catch (e) {
+      req.log?.error?.(e);
+      return reply.code(500).send({ ok: false, error: e.message || "Errore Stripe" });
+    }
+  }
+);
 
 app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req, res) => {
   const sig = req.headers["stripe-signature"];
