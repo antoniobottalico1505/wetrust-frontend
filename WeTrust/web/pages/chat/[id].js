@@ -24,7 +24,6 @@ export default function ChatRoom() {
 
   useEffect(() => {
     load();
-    // refresh leggero
     const t = setInterval(load, 2500);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps

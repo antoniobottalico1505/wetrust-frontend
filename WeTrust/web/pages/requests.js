@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
-
 export default function RequestsPage() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
