@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
+
 export default function RequestsPage() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -10,10 +11,14 @@ export default function RequestsPage() {
     try {
       setLoading(true);
       const data = await apiFetch("/requests", { auth: false });
-      setRequests(data.requests || []);
+
+      // compat: alcune API rispondono con items invece di requests
+      const list = data?.requests || data?.items || [];
+      setRequests(list);
+
       setError("");
     } catch (err) {
-      setError(err.message || "Errore nel caricare le richieste.");
+      setError(err?.message || "Errore nel caricare le richieste.");
     } finally {
       setLoading(false);
     }
@@ -25,7 +30,7 @@ export default function RequestsPage() {
       await load();
       alert("Accettata. Vai su Chat.");
     } catch (e) {
-      alert(e.message);
+      alert(e?.message || "Errore nell’accettazione.");
     }
   }
 
@@ -41,7 +46,7 @@ export default function RequestsPage() {
       </p>
 
       {loading && <p>Caricamento…</p>}
-      {error && <p>{error}</p>}
+      {error && <p className="err">{error}</p>}
 
       {!loading && !error && requests.length === 0 && (
         <p>Ancora nessuna richiesta. Creane una dalla home.</p>
@@ -51,8 +56,8 @@ export default function RequestsPage() {
         {requests.map((r) => (
           <article key={r.id} className="card">
             <div className="cardTop">
-              <h2>{r.title}</h2>
-              <span className={`badge ${r.status}`}>{r.status}</span>
+              <h2>{r.title || "Richiesta"}</h2>
+              <span className={`badge ${r.status || "open"}`}>{r.status || "open"}</span>
             </div>
 
             <p className="desc">{r.description}</p>
@@ -69,6 +74,7 @@ export default function RequestsPage() {
 
       <style jsx>{`
         .subtitle { font-size: 14px; opacity: .92; margin-bottom: 14px; }
+        .err { opacity: .95; }
 
         .list {
           display: grid;
