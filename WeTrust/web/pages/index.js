@@ -5,10 +5,7 @@ import { AuthContext } from "./_app";
 import Link from "next/link";
 
 export default function Home() {
-  // Il Provider in _app passa [user, setUser, ready]
-  // Qui ci servono user e ready
-  const [user, , ready] = useContext(AuthContext);
-
+  const [user, ready] = useContext(AuthContext);
   const [description, setDescription] = useState("");
   const [city, setCity] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,7 +28,6 @@ export default function Home() {
     try {
       setLoading(true);
 
-      // ✅ Niente getToken, niente API_BASE: ci pensa apiFetch
       await apiFetch("/requests", {
         method: "POST",
         body: JSON.stringify({ description, city }),
@@ -67,7 +63,7 @@ export default function Home() {
 
             {!ready ? null : user ? (
               <p className="pill">
-                Sei dentro con Trust-ID: <strong>{user.phone || user.email}</strong>
+                Sei dentro come: <strong>{user.phone || user.email}</strong>
               </p>
             ) : (
               <p className="pill">
@@ -80,14 +76,12 @@ export default function Home() {
               <label className="need-label">
                 Scrivi qui il tuo bisogno (pulsante <strong>I need</strong>):
               </label>
-
               <textarea
                 className="need-textarea"
                 placeholder="Es. Ho bisogno di qualcuno che accompagni mia madre dal medico domani mattina…"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
-
               <div className="need-row">
                 <input
                   className="need-city"
@@ -95,12 +89,10 @@ export default function Home() {
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                 />
-
                 <button type="submit" className="btn-primary" disabled={loading}>
                   {loading ? "Invio…" : "I need"}
                 </button>
               </div>
-
               {feedback && <p className="need-feedback">{feedback}</p>}
             </form>
           </div>
@@ -108,20 +100,17 @@ export default function Home() {
           <div className="hero-right">
             <div className="card">
               <div className="card-header">Uno sguardo all’app</div>
-
               <div className="bubble">
                 <div className="bubble-label">Esempio di richiesta</div>
                 <div className="bubble-text">
                   «Mi serve qualcuno che accompagni mia madre dal medico domani mattina.»
                 </div>
               </div>
-
               <ul className="hero-list">
                 <li>L’AI capisce il bisogno, la zona e l’urgenza.</li>
-                <li>Matching con persone verificate (Trust-ID).</li>
+                <li>Matching con persone verificate.</li>
                 <li>Pagamento bloccato e rilasciato solo a lavoro confermato.</li>
               </ul>
-
               <div className="ctaRow">
                 <Link href="/requests" className="cta">Vedi le richieste</Link>
                 <Link href="/profile" className="cta ghost">Profilo</Link>
@@ -136,7 +125,7 @@ export default function Home() {
         <div className="grid3">
           <div className="card2">
             <h3>Trust</h3>
-            <p>Accesso con Email + Password oppure SMS.</p>
+            <p>Accesso con Email + Password.</p>
           </div>
           <div className="card2">
             <h3>Help</h3>
@@ -144,7 +133,7 @@ export default function Home() {
           </div>
           <div className="card2">
             <h3>Pay</h3>
-            <p>Pagamento bloccato (hold) e rilascio con conferma.</p>
+            <p>Pagamento bloccato (hold) e rilascio con conferma. Fee automatica per WeTrust.</p>
           </div>
         </div>
       </section>
