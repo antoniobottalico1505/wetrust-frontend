@@ -477,9 +477,9 @@ app.get("/health", async () => ({ ok: true }));
   });
 
   // LISTEN
- const port = process.env.PORT || 4000;
+ const port = process.env.PORT || 10000;
 await app.listen({ port, host: "0.0.0.0" });
-
+}
 
 start().catch((err) => {
   console.error(err);
