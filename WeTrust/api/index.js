@@ -476,7 +476,7 @@ app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
   });
 
   // LISTEN
-  const PORT = Number(process.env.PORT || 4000);
+  const PORT = Number(process.env.PORT || 10000);
   await app.listen({ port: PORT, host: "0.0.0.0" });
 }
 
