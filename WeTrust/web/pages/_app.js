@@ -1,6 +1,6 @@
 import { createContext, useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
-import { getToken, getSession, clearSession, setSession } from "../lib/session";
+import { getSession, clearSession } from "../lib/session";
 
 export const AuthContext = createContext(null);
 
@@ -9,30 +9,35 @@ export default function App({ Component, pageProps }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    async function refresh() {
-      const t = getToken();
-      if (!t) {
-        setUser(null);
-        setReady(true);
-        return;
-      }
+    let alive = true;
 
+    async function refresh() {
       try {
+        // Se non c'è token, apiFetch fallirà e finiamo nel catch.
         const data = await apiFetch("/me");
+
+        if (!alive) return;
+
         if (data?.user) {
           setUser(data.user);
-          setSession(t, data.user);
         } else {
+          // fallback se hai una session salvata
           setUser(getSession());
         }
       } catch {
+        if (!alive) return;
         clearSession();
         setUser(null);
       } finally {
+        if (!alive) return;
         setReady(true);
       }
     }
+
     refresh();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   return (
