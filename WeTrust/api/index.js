@@ -15,93 +15,52 @@ const nodemailer = require("nodemailer");
 const Stripe = require("stripe");
 const { StreamChat } = require("stream-chat");
 
-// ---------------- CONFIG ----------------
-const PORT = Number(process.env.PORT || 10000);
-const HOST = "0.0.0.0";
-const FRONTEND_URL = String(process.env.FRONTEND_URL || "http://localhost:3000").trim();
-const CURRENCY = String(process.env.CURRENCY || "eur").trim();
-const JWT_SECRET = process.env.JWT_SECRET || "CHANGE_ME_JWT_SECRET";
-
-// Stripe
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
-
-// Stream
-const STREAM_API_KEY = process.env.STREAM_API_KEY;
-const STREAM_API_SECRET = process.env.STREAM_API_SECRET;
-const streamServer =
-  STREAM_API_KEY && STREAM_API_SECRET ? StreamChat.getInstance(STREAM_API_KEY, STREAM_API_SECRET) : null;
-
-// Twilio
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_VERIFY_SERVICE_SID = process.env.TWILIO_VERIFY_SERVICE_SID;
-const twilioClient =
-  TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) : null;
-
-// ---------------- IN-MEMORY DB (demo) ----------------
-// ⚠️ Questo è solo demo. In produzione: DB vero.
+// ---------------- IN-MEMORY STORE (DEMO) ----------------
+// In produzione: sostituisci con DB vero (Postgres/Mongo ecc.)
 const users = [];
-const requests = [];
+const smsCodes = new Map(); // phone -> { code, expiresAt }
+const emailCodes = new Map(); // email -> { code, expiresAt }
 const matches = [];
-const messagesByMatch = new Map(); // matchId -> [{id, fromUserId, text, createdAt}]
-const payments = new Map(); // key -> { sessionId, paymentIntentId, status }
+const requests = [];
 
-// seed demo (facoltativo)
-if (users.length === 0) {
-  users.push({
-    id: "u1",
-    email: "demo1@wetrust.app",
-    phone: null,
-    passwordHash: bcrypt.hashSync("Password123!", 10),
-    createdAt: new Date().toISOString(),
-  });
-  users.push({
-    id: "u2",
-    email: "demo2@wetrust.app",
-    phone: null,
-    passwordHash: bcrypt.hashSync("Password123!", 10),
-    createdAt: new Date().toISOString(),
-  });
-
-  requests.push({
-    id: "r1",
-    title: "Accompagnare mia madre dal medico",
-    description: "Cerco qualcuno di affidabile per accompagnare mia madre domani mattina.",
-    city: "Torino",
-    status: "open",
-    createdAt: new Date().toISOString(),
-    user_id: "u1",
-    helper_id: null,
-  });
-}
+// ---------------- ENV ----------------
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+const STREAM_API_KEY = process.env.STREAM_API_KEY || "";
+const STREAM_API_SECRET = process.env.STREAM_API_SECRET || "";
 
 // ---------------- HELPERS ----------------
+function signToken(payload) {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+}
+
+function verifyToken(token) {
+  return jwt.verify(token, JWT_SECRET);
+}
+
 function publicUser(u) {
-  return { id: u.id, email: u.email || null, phone: u.phone || null, name: u.name || null };
+  return { id: u.id, email: u.email, phone: u.phone, createdAt: u.createdAt };
 }
 
-function signToken(u) {
-  return jwt.sign({ sub: u.id }, JWT_SECRET, { expiresIn: "30d" });
-}
-
-function getAuthUser(request) {
+function requireAuth(request, reply, done) {
   const auth = request.headers.authorization || "";
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m) return null;
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (!token) return reply.code(401).send({ ok: false, error: "Token mancante" });
+
   try {
-    const payload = jwt.verify(m[1], JWT_SECRET);
-    return users.find((x) => x.id === payload.sub) || null;
-  } catch {
-    return null;
+    const payload = verifyToken(token);
+    const u = users.find((x) => x.id === payload.id);
+    if (!u) return reply.code(401).send({ ok: false, error: "Utente non valido" });
+    request.user = u;
+    done();
+  } catch (e) {
+    return reply.code(401).send({ ok: false, error: "Token non valido" });
   }
 }
 
-// Fastify preHandler
-function requireAuth(request, reply, done) {
-  const u = getAuthUser(request);
-  if (!u) return reply.code(401).send({ ok: false, error: "Non autorizzato. Effettua l’accesso." });
-  request.user = u;
-  done();
+function randomCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 function ensureMatchAccess(request, reply, matchId) {
@@ -118,16 +77,22 @@ function ensureMatchAccess(request, reply, matchId) {
 }
 
 function safeNameForStream(user) {
-  return user.email || user.phone || `User ${user.id}`;
+  if (user.email) return user.email.split("@")[0];
+  if (user.phone) return user.phone.replace(/\D/g, "").slice(-6);
+  return "user";
 }
 
-// ---------------- START ----------------
 async function start() {
   const app = fastify({ logger: true });
 
-app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
+  app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  });
   await app.register(helmet);
   await app.register(rateLimit, { max: 200, timeWindow: "1 minute" });
 
@@ -135,14 +100,32 @@ app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
   const transporter =
     process.env.SMTP_USER && process.env.SMTP_PASS
       ? nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT) || 587,
+          service: process.env.SMTP_SERVICE || undefined,
+          host: process.env.SMTP_HOST || undefined,
+          port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
           secure: process.env.SMTP_SECURE === "true",
-          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          },
         })
       : null;
 
+  // Twilio (opzionale)
+  const twilioClient =
+    process.env.TWILIO_SID && process.env.TWILIO_TOKEN
+      ? twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN)
+      : null;
+
+  // Stripe (opzionale)
+  const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+
+  // Stream (opzionale)
+  const stream =
+    STREAM_API_KEY && STREAM_API_SECRET ? StreamChat.getInstance(STREAM_API_KEY, STREAM_API_SECRET) : null;
+
   // ---------------- ROUTES ----------------
+  // UNICA route /health (niente duplicati!)
   app.get("/health", async () => ({ ok: true, status: "ok" }));
 
   app.get("/me", { preHandler: [requireAuth] }, async (request) => {
@@ -152,18 +135,22 @@ app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
   // ---------- STREAM TOKEN ----------
   // Il frontend chiama /stream/token dopo login e ottiene apiKey + token.
   app.get("/stream/token", { preHandler: [requireAuth] }, async (request, reply) => {
-    if (!streamServer) {
-      return reply.code(500).send({ ok: false, error: "Stream non configurato (STREAM_API_KEY/STREAM_API_SECRET)" });
+    if (!stream) return reply.code(500).send({ ok: false, error: "Stream non configurato" });
+
+    const user = request.user;
+    const userId = user.id;
+    const name = safeNameForStream(user);
+
+    try {
+      await stream.upsertUser({ id: userId, name });
+      const token = stream.createToken(userId);
+      return reply.send({ ok: true, apiKey: STREAM_API_KEY, token });
+    } catch (e) {
+      return reply.code(500).send({ ok: false, error: "Errore Stream" });
     }
-
-    const userId = String(request.user.id);
-    await streamServer.upsertUser({ id: userId, name: safeNameForStream(request.user) });
-
-    const token = streamServer.createToken(userId);
-    return reply.send({ ok: true, apiKey: STREAM_API_KEY, userId, token });
   });
 
-  // -------- EMAIL/PASSWORD AUTH --------
+  // ---------- AUTH: EMAIL REGISTER ----------
   app.post("/auth/email/register", async (request, reply) => {
     const { email, password } = request.body || {};
     if (!email || !password) return reply.code(400).send({ ok: false, error: "Email e password obbligatori." });
@@ -182,187 +169,229 @@ app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
       passwordHash: await bcrypt.hash(String(password), 10),
       createdAt: new Date().toISOString(),
     };
-    users.unshift(u);
+    users.push(u);
 
-    return { ok: true, token: signToken(u), user: publicUser(u) };
+    const token = signToken({ id: u.id });
+    return reply.send({ ok: true, token, user: publicUser(u) });
   });
 
+  // ---------- AUTH: EMAIL LOGIN ----------
   app.post("/auth/email/login", async (request, reply) => {
     const { email, password } = request.body || {};
     if (!email || !password) return reply.code(400).send({ ok: false, error: "Email e password obbligatori." });
 
     const cleanEmail = String(email).trim().toLowerCase();
     const u = users.find((x) => (x.email || "").toLowerCase() === cleanEmail);
-    if (!u || !u.passwordHash) return reply.code(401).send({ ok: false, error: "Credenziali non valide." });
+    if (!u) return reply.code(401).send({ ok: false, error: "Credenziali errate." });
 
     const ok = await bcrypt.compare(String(password), u.passwordHash);
-    if (!ok) return reply.code(401).send({ ok: false, error: "Credenziali non valide." });
+    if (!ok) return reply.code(401).send({ ok: false, error: "Credenziali errate." });
 
-    return { ok: true, token: signToken(u), user: publicUser(u) };
+    const token = signToken({ id: u.id });
+    return reply.send({ ok: true, token, user: publicUser(u) });
   });
 
-  // -------- SMS OTP (Twilio Verify) --------
-  app.post("/auth/sms/start", async (request, reply) => {
+  // ---------- AUTH: SMS SEND CODE ----------
+  app.post("/auth/sms/send", async (request, reply) => {
     const { phone } = request.body || {};
-    if (!phone) return reply.code(400).send({ ok: false, error: "Telefono obbligatorio." });
-    if (!twilioClient || !TWILIO_VERIFY_SERVICE_SID)
-      return reply.code(500).send({ ok: false, error: "Twilio non configurato (TWILIO_* mancanti)." });
+    const cleanPhone = String(phone || "").trim();
+    if (!cleanPhone) return reply.code(400).send({ ok: false, error: "Numero richiesto." });
 
-    try {
-      await twilioClient.verify.services(TWILIO_VERIFY_SERVICE_SID).verifications.create({
-        to: String(phone).trim(),
-        channel: "sms",
-      });
-      return { ok: true };
-    } catch (e) {
-      app.log.error(e);
-      return reply.code(500).send({ ok: false, error: "Errore invio SMS." });
+    const code = randomCode();
+    smsCodes.set(cleanPhone, { code, expiresAt: Date.now() + 5 * 60 * 1000 });
+
+    if (twilioClient && process.env.TWILIO_FROM) {
+      try {
+        await twilioClient.messages.create({
+          to: cleanPhone,
+          from: process.env.TWILIO_FROM,
+          body: `WeTrust codice: ${code}`,
+        });
+      } catch (e) {
+        return reply.code(500).send({ ok: false, error: "Errore invio SMS." });
+      }
     }
+
+    // per debug/dev: ritorno il codice se Twilio non è configurato
+    return reply.send({ ok: true, sent: true, devCode: twilioClient ? undefined : code });
   });
 
+  // ---------- AUTH: SMS VERIFY ----------
   app.post("/auth/sms/verify", async (request, reply) => {
     const { phone, code } = request.body || {};
-    if (!phone || !code) return reply.code(400).send({ ok: false, error: "Telefono e codice obbligatori." });
-    if (!twilioClient || !TWILIO_VERIFY_SERVICE_SID)
-      return reply.code(500).send({ ok: false, error: "Twilio non configurato (TWILIO_* mancanti)." });
+    const cleanPhone = String(phone || "").trim();
+    const cleanCode = String(code || "").trim();
+    const entry = smsCodes.get(cleanPhone);
 
-    try {
-      const check = await twilioClient.verify.services(TWILIO_VERIFY_SERVICE_SID).verificationChecks.create({
-        to: String(phone).trim(),
-        code: String(code).trim(),
-      });
+    if (!entry || entry.expiresAt < Date.now()) return reply.code(400).send({ ok: false, error: "Codice scaduto." });
+    if (entry.code !== cleanCode) return reply.code(400).send({ ok: false, error: "Codice errato." });
 
-      if (check.status !== "approved") return reply.code(401).send({ ok: false, error: "Codice non valido." });
+    smsCodes.delete(cleanPhone);
 
-      const to = String(phone).trim();
-      let u = users.find((x) => x.phone === to);
-      if (!u) {
-        u = { id: String(Date.now()), email: null, phone: to, passwordHash: null, createdAt: new Date().toISOString() };
-        users.unshift(u);
-      }
-      return { ok: true, token: signToken(u), user: publicUser(u) };
-    } catch (e) {
-      app.log.error(e);
-      return reply.code(500).send({ ok: false, error: "Errore verifica codice." });
+    let u = users.find((x) => x.phone === cleanPhone);
+    if (!u) {
+      u = {
+        id: String(Date.now()),
+        email: null,
+        phone: cleanPhone,
+        passwordHash: null,
+        createdAt: new Date().toISOString(),
+      };
+      users.push(u);
     }
+
+    const token = signToken({ id: u.id });
+    return reply.send({ ok: true, token, user: publicUser(u) });
   });
 
-  // -------- REQUESTS --------
-  app.get("/requests", async () => ({ ok: true, requests }));
+  // ---------- AUTH: EMAIL SEND CODE ----------
+  app.post("/auth/email/send", async (request, reply) => {
+    const { email } = request.body || {};
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (!cleanEmail.includes("@")) return reply.code(400).send({ ok: false, error: "Email non valida." });
+
+    const code = randomCode();
+    emailCodes.set(cleanEmail, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
+
+    if (transporter) {
+      try {
+        await transporter.sendMail({
+          from: process.env.SMTP_USER,
+          to: cleanEmail,
+          subject: "WeTrust - Codice di verifica",
+          text: `Codice: ${code}`,
+        });
+      } catch (e) {
+        return reply.code(500).send({ ok: false, error: "Errore invio email." });
+      }
+    }
+
+    return reply.send({ ok: true, sent: true, devCode: transporter ? undefined : code });
+  });
+
+  // ---------- AUTH: EMAIL VERIFY ----------
+  app.post("/auth/email/verify", async (request, reply) => {
+    const { email, code } = request.body || {};
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    const cleanCode = String(code || "").trim();
+
+    const entry = emailCodes.get(cleanEmail);
+    if (!entry || entry.expiresAt < Date.now()) return reply.code(400).send({ ok: false, error: "Codice scaduto." });
+    if (entry.code !== cleanCode) return reply.code(400).send({ ok: false, error: "Codice errato." });
+
+    emailCodes.delete(cleanEmail);
+
+    let u = users.find((x) => (x.email || "").toLowerCase() === cleanEmail);
+    if (!u) {
+      u = {
+        id: String(Date.now()),
+        email: cleanEmail,
+        phone: null,
+        passwordHash: null,
+        createdAt: new Date().toISOString(),
+      };
+      users.push(u);
+    }
+
+    const token = signToken({ id: u.id });
+    return reply.send({ ok: true, token, user: publicUser(u) });
+  });
+
+  // ---------------- REQUESTS ----------------
+  app.get("/requests", { preHandler: [requireAuth] }, async () => {
+    return { ok: true, items: requests };
+  });
 
   app.post("/requests", { preHandler: [requireAuth] }, async (request, reply) => {
-    const { description, city, title } = request.body || {};
-    if (!description || String(description).trim().length < 3)
-      return reply.code(400).send({ ok: false, error: "Descrizione obbligatoria." });
+    const { title, description } = request.body || {};
+    if (!title) return reply.code(400).send({ ok: false, error: "Titolo obbligatorio" });
 
     const r = {
       id: String(Date.now()),
-      title: title ? String(title).trim() : "Richiesta",
-      description: String(description).trim(),
-      city: city ? String(city).trim() : "",
-      status: "open",
+      userId: request.user.id,
+      title: String(title),
+      description: String(description || ""),
       createdAt: new Date().toISOString(),
-      user_id: request.user.id,
-      helper_id: null,
+      status: "OPEN",
     };
-    requests.unshift(r);
-    return { ok: true, request: r };
+    requests.push(r);
+    return reply.send({ ok: true, item: r });
   });
 
-  // ACCEPT: crea match + (se Stream configurato) crea channel e salva channelId
-  app.post("/requests/:id/accept", { preHandler: [requireAuth] }, async (request, reply) => {
-    const id = String(request.params.id);
-    const r = requests.find((x) => x.id === id);
-    if (!r) return reply.code(404).send({ ok: false, error: "Richiesta non trovata." });
-    if (r.status !== "open") return reply.code(400).send({ ok: false, error: "Richiesta non accettabile." });
+  // ---------------- MATCHES ----------------
+  app.get("/matches", { preHandler: [requireAuth] }, async (request) => {
+    const list = matches.filter((m) => m.userId === request.user.id || m.helperId === request.user.id);
+    return { ok: true, items: list };
+  });
 
-    r.status = "matched";
-    r.helper_id = request.user.id;
+  app.post("/matches", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { requestId, helperId } = request.body || {};
+    if (!requestId || !helperId) return reply.code(400).send({ ok: false, error: "requestId e helperId obbligatori" });
+
+    const reqItem = requests.find((x) => x.id === String(requestId));
+    if (!reqItem) return reply.code(404).send({ ok: false, error: "Request non trovata" });
 
     const m = {
       id: String(Date.now()),
-      requestId: r.id,
-      userId: r.user_id,
-      helperId: r.helper_id,
+      requestId: String(requestId),
+      userId: reqItem.userId,
+      helperId: String(helperId),
       createdAt: new Date().toISOString(),
-      channelId: null,
     };
+    matches.push(m);
+    return reply.send({ ok: true, item: m });
+  });
 
-    // crea channel Stream (messaging) tra user e helper
-    if (streamServer) {
-      const userA = String(m.userId);
-      const userB = String(m.helperId);
+  // ---------------- PAYMENTS (Stripe) ----------------
+  app.post("/payments/create-intent", { preHandler: [requireAuth] }, async (request, reply) => {
+    if (!stripe) return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
 
-      // upsert utenti su Stream
-      const uA = users.find((u) => u.id === m.userId);
-      const uB = users.find((u) => u.id === m.helperId);
-      if (uA) await streamServer.upsertUser({ id: userA, name: safeNameForStream(uA) });
-      if (uB) await streamServer.upsertUser({ id: userB, name: safeNameForStream(uB) });
+    const { amount, currency } = request.body || {};
+    if (!amount) return reply.code(400).send({ ok: false, error: "amount obbligatorio" });
 
-      const channel = streamServer.channel("messaging", `match_${m.id}`, {
-        members: [userA, userB],
+    try {
+      const pi = await stripe.paymentIntents.create({
+        amount: Number(amount),
+        currency: currency || "eur",
+        metadata: { userId: request.user.id },
       });
-
-      await channel.create();
-      m.channelId = channel.id;
+      return reply.send({ ok: true, paymentIntent: pi });
+    } catch (e) {
+      return reply.code(500).send({ ok: false, error: "Errore Stripe" });
     }
-
-    matches.unshift(m);
-    messagesByMatch.set(m.id, []);
-
-    return { ok: true, match: m };
   });
 
-  // -------- MATCHES (Chats page) --------
-  app.get("/me/matches", { preHandler: [requireAuth] }, async (request) => {
-    const myId = request.user.id;
-    const list = matches
-      .filter((m) => m.userId === myId || m.helperId === myId)
-      .map((m) => {
-        const r = requests.find((x) => x.id === m.requestId);
-        const otherId = m.userId === myId ? m.helperId : m.userId;
-        const otherUser = users.find((u) => u.id === otherId);
-        return {
-          id: m.id,
-          requestTitle: r?.title || "Richiesta",
-          requestCity: r?.city || "",
-          otherUser: otherUser ? publicUser(otherUser) : { id: otherId, email: null, phone: null },
-          channelId: m.channelId || null,
-        };
-      });
+  // -------- STRIPE WEBHOOK (RAW) --------
+  // Incapsulato: parser application/json -> Buffer SOLO per questa route
+  app.register(async function (instance) {
+    instance.addContentTypeParser(
+      "application/json",
+      { parseAs: "buffer" },
+      (req, body, done) => done(null, body)
+    );
 
-    return { ok: true, matches: list };
-  });
+    instance.post("/webhooks/stripe", async (request, reply) => {
+      if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+        reply.code(500);
+        return { ok: false, error: "Stripe webhook non configurato" };
+      }
 
-  // -------- CHAT (fallback interno se non usi Stream nel frontend) --------
-  app.get("/matches/:id/messages", { preHandler: [requireAuth] }, async (request, reply) => {
-    const matchId = String(request.params.id);
-    const m = ensureMatchAccess(request, reply, matchId);
-    if (!m) return;
-    return { ok: true, messages: messagesByMatch.get(matchId) || [] };
-  });
+      const sig = request.headers["stripe-signature"];
+      let event;
+      try {
+        event = stripe.webhooks.constructEvent(request.body, sig, STRIPE_WEBHOOK_SECRET);
+      } catch (err) {
+        reply.code(400);
+        return { ok: false, error: "Webhook signature failed" };
+      }
 
-  app.post("/matches/:id/messages", { preHandler: [requireAuth] }, async (request, reply) => {
-    const matchId = String(request.params.id);
-    const m = ensureMatchAccess(request, reply, matchId);
-    if (!m) return;
+      // Gestisci gli eventi che ti servono
+      if (event.type === "payment_intent.succeeded") {
+        // ok
+      }
 
-    const { text } = request.body || {};
-    if (!text || String(text).trim().length === 0)
-      return reply.code(400).send({ ok: false, error: "Testo obbligatorio." });
-
-    const msg = {
-      id: String(Date.now()),
-      fromUserId: request.user.id,
-      text: String(text).trim(),
-      createdAt: new Date().toISOString(),
-    };
-
-    const list = messagesByMatch.get(matchId) || [];
-    list.push(msg);
-    messagesByMatch.set(matchId, list);
-
-    return { ok: true, message: msg };
+      return reply.send({ received: true });
+    });
   });
 
   // -------- CONTACT --------
@@ -379,105 +408,16 @@ app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
         subject: `WeTrust Contact - ${name || "Anonimo"} (${email || "no-email"})`,
         text: String(message),
       });
-      return { ok: true };
+      return reply.send({ ok: true, sent: true });
     } catch (e) {
-      app.log.error(e);
       return reply.code(500).send({ ok: false, error: "Errore invio email." });
     }
   });
 
-  // -------- STRIPE: HOLD (manual capture) --------
-  app.post("/payments/checkout-session", { preHandler: [requireAuth] }, async (request, reply) => {
-    if (!stripe) return reply.code(500).send({ ok: false, error: "Stripe non configurato (STRIPE_SECRET_KEY)." });
-    if (!process.env.STRIPE_WEBHOOK_SECRET)
-      return reply.code(500).send({ ok: false, error: "Stripe webhook secret mancante (STRIPE_WEBHOOK_SECRET)." });
-
-    const { amountCents, requestId, matchId } = request.body || {};
-    if (!amountCents) return reply.code(400).send({ ok: false, error: "amountCents obbligatorio." });
-
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        {
-          price_data: {
-            currency: CURRENCY,
-            product_data: { name: "WeTrust - pagamento" },
-            unit_amount: Number(amountCents),
-          },
-          quantity: 1,
-        },
-      ],
-      success_url: `${FRONTEND_URL}/pay/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${FRONTEND_URL}/pay/cancel`,
-      payment_intent_data: { capture_method: "manual" }, // HOLD
-      metadata: {
-        requestId: requestId ? String(requestId) : "",
-        matchId: matchId ? String(matchId) : "",
-        payerUserId: String(request.user.id),
-      },
-    });
-
-    const key = (matchId && String(matchId)) || (requestId && String(requestId)) || session.id;
-    payments.set(key, {
-      sessionId: session.id,
-      paymentIntentId: session.payment_intent || null,
-      status: "CREATED",
-    });
-
-    return reply.send({ ok: true, url: session.url, sessionId: session.id });
-  });
-
-  app.post("/payments/capture", { preHandler: [requireAuth] }, async (request, reply) => {
-    if (!stripe) return reply.code(500).send({ ok: false, error: "Stripe non configurato (STRIPE_SECRET_KEY)." });
-
-    const { paymentIntentId } = request.body || {};
-    if (!paymentIntentId) return reply.code(400).send({ ok: false, error: "paymentIntentId obbligatorio." });
-
-    const pi = await stripe.paymentIntents.capture(String(paymentIntentId));
-    return reply.send({ ok: true, paymentIntent: pi });
-  });
-
-  // -------- STRIPE WEBHOOK (RAW) --------
-  // Incapsulato: parser application/json -> Buffer SOLO per questa route
-  app.register(async function (instance) {
-    instance.addContentTypeParser(
-      "application/json",
-      { parseAs: "buffer" },
-      (req, body, done) => done(null, body)
-    );
-
-    instance.post("/webhooks/stripe", async (request, reply) => {
-      if (!stripe) return reply.code(500).send("Stripe not configured");
-
-      const sig = request.headers["stripe-signature"];
-      const buf = request.body; // Buffer raw
-
-      let event;
-      try {
-        event = stripe.webhooks.constructEvent(buf, sig, process.env.STRIPE_WEBHOOK_SECRET);
-      } catch (e) {
-        return reply.code(400).send(`Signature error: ${e.message}`);
-      }
-
-      if (event.type === "checkout.session.completed") {
-        const session = event.data.object;
-        const key = session.metadata?.matchId || session.metadata?.requestId || session.id;
-        const prev = payments.get(key) || {};
-        payments.set(key, {
-          ...prev,
-          sessionId: session.id,
-          paymentIntentId: session.payment_intent,
-          status: "AUTHORIZED",
-        });
-      }
-
-      return reply.send({ received: true });
-    });
-  });
-
-  // LISTEN
+  // LISTEN (Render: PORT + 0.0.0.0)
   const PORT = Number(process.env.PORT || 10000);
-  await app.listen({ port: PORT, host: "0.0.0.0" });
+  const address = await app.listen({ port: PORT, host: "0.0.0.0" });
+  app.log.info(`Server listening at ${address}`);
 }
 
 start().catch((err) => {
