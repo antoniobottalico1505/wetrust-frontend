@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+
+# next
+.next/
+out/
+
+# env
+.env
+.env.local
+.env.production
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+(
+echo node_modules/
+echo .next/
+echo dist/
+echo build/
+echo .env
+echo .env.*
+echo WeTrust/web/node_modules/
+echo WeTrust/api/node_modules/
+echo WeTrust/web/.next/
+echo WeTrust/api/dist/
+) > .gitignore
