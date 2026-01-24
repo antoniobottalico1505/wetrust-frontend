@@ -85,14 +85,14 @@ function safeNameForStream(user) {
 async function start() {
   const app = fastify({ logger: true });
 
-  app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
-
   await app.register(cors, {
-    origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  });
+  origin: ["https://www.wetrust.club", "https://wetrust.club"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+});
+
+  app.get("/", async () => ({ ok: true, service: "wetrust-api" }));
   await app.register(helmet);
   await app.register(rateLimit, { max: 200, timeWindow: "1 minute" });
 

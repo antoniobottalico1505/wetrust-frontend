@@ -1,10 +1,15 @@
 import { useContext, useEffect, useState } from "react";
 import Layout from "../components/Layout";
-import { apiFetch, API_BASE } from "../lib/api";
+import { apiFetch } from "../lib/api";
 import { AuthContext } from "./_app";
 
 export default function ProfilePage() {
-  const { user, ready, logout, refresh } = useContext(AuthContext);
+  const auth = useContext(AuthContext) || {};
+  const user = auth.user ?? auth[0] ?? null;
+  const ready = auth.ready ?? auth[2] ?? false;
+  const logout = auth.logout ?? (() => {});
+  const refresh = auth.refresh ?? (async () => {});
+
   const [msg, setMsg] = useState("");
   const [wallet, setWallet] = useState(0);
   const [redeemCode, setRedeemCode] = useState("");
@@ -15,8 +20,10 @@ export default function ProfilePage() {
     (async () => {
       try {
         const data = await apiFetch("/wallet");
-        setWallet(data.wallet_cents);
-      } catch {}
+        setWallet(Number(data?.wallet_cents || 0));
+      } catch {
+        setWallet(0);
+      }
     })();
   }, [ready, user]);
 
@@ -25,13 +32,19 @@ export default function ProfilePage() {
     setMsg("");
     try {
       setLoading(true);
-      await apiFetch("/vouchers/redeem", { method: "POST", body: JSON.stringify({ code: redeemCode }) });
+      await apiFetch("/vouchers/redeem", {
+        method: "POST",
+        body: JSON.stringify({ code: redeemCode }),
+      });
       setRedeemCode("");
+
       const data = await apiFetch("/wallet");
-      setWallet(data.wallet_cents);
+      setWallet(Number(data?.wallet_cents || 0));
+
       setMsg("Voucher riscattato ✅");
+      await refresh();
     } catch (err) {
-      setMsg(err.message);
+      setMsg(err?.message || "Errore nel riscatto voucher.");
     } finally {
       setLoading(false);
     }
@@ -42,16 +55,20 @@ export default function ProfilePage() {
     try {
       setLoading(true);
       const baseUrl = window.location.origin;
-      const data = await apiFetch("/stripe/connect/onboard", { method: "POST", body: JSON.stringify({ baseUrl }) });
+      const data = await apiFetch("/stripe/connect/onboard", {
+        method: "POST",
+        body: JSON.stringify({ baseUrl }),
+      });
       window.location.href = data.url;
     } catch (err) {
-      setMsg(err.message);
+      setMsg(err?.message || "Errore nell'apertura onboarding Stripe.");
     } finally {
       setLoading(false);
     }
   }
 
   if (!ready) return <Layout title="WeTrust"><p>Caricamento…</p></Layout>;
+
   if (!user) {
     return (
       <Layout title="WeTrust — Profilo">
@@ -79,9 +96,10 @@ export default function ProfilePage() {
     <Layout title="WeTrust — Profilo">
       <div className="wrap">
         <h1>Profilo</h1>
+
         <div className="card">
-          <div><strong>Trust-ID (telefono)</strong>: {user.phone}</div>
-          <div><strong>Wallet voucher</strong>: {(wallet/100).toFixed(2)}€</div>
+          <div><strong>Trust-ID</strong>: {user.phone || user.email || user.name || "—"}</div>
+          <div><strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€</div>
           <div><strong>Stripe Connect</strong>: {user.stripe_account_id ? "attivo" : "non attivo"}</div>
 
           <div className="row">
@@ -101,7 +119,11 @@ export default function ProfilePage() {
 
           <h2>Riscatta voucher</h2>
           <form onSubmit={redeem} className="row">
-            <input value={redeemCode} onChange={(e)=>setRedeemCode(e.target.value)} placeholder="CODICE" />
+            <input
+              value={redeemCode}
+              onChange={(e) => setRedeemCode(e.target.value)}
+              placeholder="CODICE"
+            />
             <button disabled={loading}>{loading ? "…" : "Riscatta"}</button>
           </form>
 

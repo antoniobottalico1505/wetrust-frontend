@@ -5,7 +5,10 @@ import { AuthContext } from "./_app";
 import Link from "next/link";
 
 export default function Home() {
-  const [user, ready] = useContext(AuthContext);
+  const auth = useContext(AuthContext) || {};
+  const user = auth.user ?? auth[0] ?? null;
+  const ready = auth.ready ?? auth[2] ?? false;
+
   const [description, setDescription] = useState("");
   const [city, setCity] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,7 +41,7 @@ export default function Home() {
       setFeedback("Richiesta inviata ✅ La trovi nella pagina Richieste.");
     } catch (err) {
       console.error(err);
-      setFeedback(err.message || "Errore nel salvataggio della richiesta.");
+      setFeedback(err?.message || "Errore nel salvataggio della richiesta.");
     } finally {
       setLoading(false);
     }
@@ -63,12 +66,15 @@ export default function Home() {
 
             {!ready ? null : user ? (
               <p className="pill">
-                Sei dentro come: <strong>{user.phone || user.email}</strong>
+                Sei dentro come: <strong>{user.phone || user.email || user.name || "utente"}</strong>
               </p>
             ) : (
               <p className="pill">
                 Per pubblicare/accettare richieste e chattare:{" "}
-                <Link href="/login" className="link">accedi</Link>.
+                <Link href="/login" className="link">
+                  accedi
+                </Link>
+                .
               </p>
             )}
 
@@ -108,12 +114,16 @@ export default function Home() {
               </div>
               <ul className="hero-list">
                 <li>L’AI capisce il bisogno, la zona e l’urgenza.</li>
-                <li>Matching con persone verificate.</li>
+                <li>Matching con persone affidabili.</li>
                 <li>Pagamento bloccato e rilasciato solo a lavoro confermato.</li>
               </ul>
               <div className="ctaRow">
-                <Link href="/requests" className="cta">Vedi le richieste</Link>
-                <Link href="/profile" className="cta ghost">Profilo</Link>
+                <Link href="/requests" className="cta">
+                  Vedi le richieste
+                </Link>
+                <Link href="/profile" className="cta ghost">
+                  Profilo
+                </Link>
               </div>
             </div>
           </div>

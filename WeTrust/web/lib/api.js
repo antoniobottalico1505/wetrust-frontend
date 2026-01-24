@@ -1,8 +1,19 @@
-const API_BASE =
+// lib/api.js
+
+// 1) Base URL: se non è settata una env "public", in produzione su Vercel
+// conviene usare un proxy same-origin: /api  (con rewrites in vercel.json)
+const ENV_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.REACT_APP_API_URL ||
   process.env.VITE_API_URL ||
-  "https://api.wetrust.club"; // <-- niente localhost in produzione
+  "";
+
+// Fallback ragionato:
+// - Browser: /api (così chiami https://tuosito.vercel.app/api/... e Vercel fa proxy verso Render)
+// - SSR (se mai servisse): fallback al tuo dominio legacy
+const API_BASE =
+  ENV_BASE ||
+  (typeof window !== "undefined" ? "/api" : "https://wetrust-frontend.onrender.com/");
 
 function readToken() {
   if (typeof window === "undefined") return null;
@@ -19,7 +30,15 @@ function isPlainObject(x) {
 
 function joinUrl(base, path) {
   const b = String(base || "").replace(/\/+$/, "");
-  const p = String(path || "").startsWith("/") ? String(path || "") : `/${path || ""}`;
+  let p = String(path || "");
+  p = p.startsWith("/") ? p : `/${p}`;
+
+  // Evita doppio /api se base finisce con /api e path inizia con /api/...
+  if (/\/api$/i.test(b) && /^\/api(\/|$)/i.test(p)) {
+    p = p.replace(/^\/api/i, "");
+    if (!p.startsWith("/")) p = `/${p}`;
+  }
+
   return `${b}${p}`;
 }
 
@@ -34,7 +53,6 @@ export async function apiFetch(path, opts = {}) {
 
   // Body
   let body = fetchOpts.body;
-
   const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
 
   // Se body è un plain object o array, lo trasformo in JSON automaticamente
@@ -45,6 +63,16 @@ export async function apiFetch(path, opts = {}) {
     // altri oggetti serializzabili
     body = JSON.stringify(body);
     if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  } else if (
+    typeof body === "string" &&
+    !isFormData &&
+    !headers["Content-Type"]
+  ) {
+    // Se passi JSON.stringify(...) ma ti dimentichi l'header:
+    const t = body.trim();
+    if (t.startsWith("{") || t.startsWith("[")) {
+      headers["Content-Type"] = "application/json";
+    }
   }
 
   const url =
@@ -52,7 +80,8 @@ export async function apiFetch(path, opts = {}) {
       ? path
       : joinUrl(API_BASE, path);
 
-  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const controller =
+    typeof AbortController !== "undefined" ? new AbortController() : null;
   const t = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   let res;
@@ -64,8 +93,9 @@ export async function apiFetch(path, opts = {}) {
       signal: controller ? controller.signal : undefined,
     });
   } catch (e) {
-    // Tipico: CORS / mixed content / DNS / API down / timeout
-    throw new Error("Impossibile raggiungere l’API (Failed to fetch). Controlla URL API, HTTPS e CORS.");
+    throw new Error(
+      `Impossibile raggiungere l’API (Failed to fetch). URL: ${url} — controlla API_BASE, HTTPS e CORS.`
+    );
   } finally {
     if (t) clearTimeout(t);
   }
@@ -89,8 +119,7 @@ export async function apiFetch(path, opts = {}) {
 
   if (!res.ok || (data && data.ok === false)) {
     const msg =
-      (data && (data.error || data.message)) ||
-      `Errore API (${res.status})`;
+      (data && (data.error || data.message)) || `Errore API (${res.status})`;
     throw new Error(msg);
   }
 
