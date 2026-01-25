@@ -1,10 +1,25 @@
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import { setSession } from "../lib/session";
 
+function persistToken(token) {
+  if (typeof window === "undefined") return;
+  try {
+    // Chiave principale (coerente con lib/api.js)
+    localStorage.setItem("wetrust_token", token);
+    // Compat extra (se qualche parte del codice legge "token")
+    localStorage.setItem("token", token);
+  } catch {
+    // ignora (storage disabilitato / privacy mode)
+  }
+}
+
 export default function LoginPage() {
+  const router = useRouter();
+
   const [mode, setMode] = useState("email"); // "email" | "sms"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,16 +34,26 @@ export default function LoginPage() {
   async function loginEmail(e) {
     e.preventDefault();
     setMsg("");
+
     try {
       setLoading(true);
+
       const data = await apiFetch("/auth/email/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        auth: false, // login non richiede token
+        body: { email, password }, // apiFetch serializza da solo
       });
-      setSession(data.token, data.user);
-      window.location.href = "/";
+
+      // ✅ PRENDO IL TOKEN UNA VOLTA SOLA E LO SALVO SEMPRE
+      const token = data?.token || data?.access_token;
+      if (!token) throw new Error("Login riuscito ma token mancante nella risposta API");
+
+      persistToken(token);
+      setSession(token, data.user);
+
+      await router.push("/");
     } catch (err) {
-      setMsg(err.message);
+      setMsg(err?.message || "Errore login");
     } finally {
       setLoading(false);
     }
@@ -37,16 +62,21 @@ export default function LoginPage() {
   async function startSms(e) {
     e.preventDefault();
     setMsg("");
+
     try {
       setLoading(true);
-      await apiFetch("/auth/sms/start", {
+
+      // ✅ nel backend è /auth/sms/send (non /auth/sms/start)
+      await apiFetch("/auth/sms/send", {
         method: "POST",
-        body: JSON.stringify({ phone }),
+        auth: false,
+        body: { phone },
       });
+
       setSmsStep(2);
       setMsg("Codice inviato via SMS.");
     } catch (err) {
-      setMsg(err.message);
+      setMsg(err?.message || "Errore invio SMS");
     } finally {
       setLoading(false);
     }
@@ -55,16 +85,25 @@ export default function LoginPage() {
   async function verifySms(e) {
     e.preventDefault();
     setMsg("");
+
     try {
       setLoading(true);
+
       const data = await apiFetch("/auth/sms/verify", {
         method: "POST",
-        body: JSON.stringify({ phone, code }),
+        auth: false,
+        body: { phone, code },
       });
-      setSession(data.token, data.user);
-      window.location.href = "/";
+
+      const token = data?.token || data?.access_token;
+      if (!token) throw new Error("Verifica SMS riuscita ma token mancante nella risposta API");
+
+      persistToken(token);
+      setSession(token, data.user);
+
+      await router.push("/");
     } catch (err) {
-      setMsg(err.message);
+      setMsg(err?.message || "Errore verifica SMS");
     } finally {
       setLoading(false);
     }
@@ -75,30 +114,59 @@ export default function LoginPage() {
       <h1>Accedi</h1>
 
       <div className="tabs">
-        <button className={mode === "email" ? "tab active" : "tab"} onClick={() => { setMode("email"); setMsg(""); }}>
+        <button
+          className={mode === "email" ? "tab active" : "tab"}
+          onClick={() => {
+            setMode("email");
+            setSmsStep(1);
+            setCode("");
+            setMsg("");
+          }}
+          type="button"
+        >
           Email + Password
         </button>
-        <button className={mode === "sms" ? "tab active" : "tab"} onClick={() => { setMode("sms"); setMsg(""); }}>
+
+        <button
+          className={mode === "sms" ? "tab active" : "tab"}
+          onClick={() => {
+            setMode("sms");
+            setSmsStep(1);
+            setCode("");
+            setMsg("");
+          }}
+          type="button"
+        >
           SMS (OTP)
         </button>
       </div>
 
       {mode === "email" ? (
-        <>
-          <form className="card" onSubmit={loginEmail}>
-            <label>Email</label>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
+        <form className="card" onSubmit={loginEmail}>
+          <label>Email</label>
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            type="email"
+            required
+            autoComplete="email"
+          />
 
-            <label>Password</label>
-            <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" required />
+          <label>Password</label>
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            required
+            autoComplete="current-password"
+          />
 
-            <button disabled={loading}>{loading ? "Accesso…" : "Accedi"}</button>
+          <button disabled={loading}>{loading ? "Accesso…" : "Accedi"}</button>
 
-            <p className="small">
-              Non hai un account? <Link href="/register">Registrati</Link>
-            </p>
-          </form>
-        </>
+          <p className="small">
+            Non hai un account? <Link href="/register">Registrati</Link>
+          </p>
+        </form>
       ) : (
         <>
           {smsStep === 1 ? (
@@ -109,6 +177,7 @@ export default function LoginPage() {
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+393331112223"
                 required
+                autoComplete="tel"
               />
 
               <button disabled={loading}>{loading ? "Invio…" : "Invia codice SMS"}</button>
@@ -117,16 +186,30 @@ export default function LoginPage() {
           ) : (
             <form className="card" onSubmit={verifySms}>
               <label>Telefono</label>
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} required />
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} required autoComplete="tel" />
 
               <label>Codice SMS</label>
-              <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="123456" required />
+              <input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="123456"
+                required
+                inputMode="numeric"
+              />
 
               <button disabled={loading}>{loading ? "Verifica…" : "Verifica e accedi"}</button>
 
               <p className="small">
                 Non è arrivato?{" "}
-                <a href="#" onClick={(e) => { e.preventDefault(); setSmsStep(1); setCode(""); }}>
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setSmsStep(1);
+                    setCode("");
+                    setMsg("");
+                  }}
+                >
                   reinvia
                 </a>
               </p>
@@ -138,17 +221,26 @@ export default function LoginPage() {
       {msg && <p className="msg">{msg}</p>}
 
       <style jsx>{`
-        .tabs { display:flex; gap:10px; margin: 12px 0; flex-wrap:wrap; }
-        .tab {
-          border-radius:999px;
-          border:1px solid rgba(148,163,184,0.45);
-          background: rgba(15,23,42,0.6);
-          color:#fff;
-          padding: 8px 14px;
-          cursor:pointer;
-          font-weight:800;
+        .tabs {
+          display: flex;
+          gap: 10px;
+          margin: 12px 0;
+          flex-wrap: wrap;
         }
-        .active { background: linear-gradient(135deg,#00b4ff,#00e0a0); color:#020617; border:none; }
+        .tab {
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.45);
+          background: rgba(15, 23, 42, 0.6);
+          color: #fff;
+          padding: 8px 14px;
+          cursor: pointer;
+          font-weight: 800;
+        }
+        .active {
+          background: linear-gradient(135deg, #00b4ff, #00e0a0);
+          color: #020617;
+          border: none;
+        }
 
         .card {
           max-width: 520px;
@@ -156,11 +248,14 @@ export default function LoginPage() {
           background: rgba(15, 23, 42, 0.95);
           border: 1px solid rgba(148, 163, 184, 0.4);
           padding: 14px 16px;
-          display:flex;
-          flex-direction:column;
+          display: flex;
+          flex-direction: column;
           gap: 8px;
         }
-        label { font-size: 13px; color:#e5e7eb; }
+        label {
+          font-size: 13px;
+          color: #e5e7eb;
+        }
         input {
           border-radius: 10px;
           border: 1px solid rgba(148, 163, 184, 0.7);
@@ -179,9 +274,23 @@ export default function LoginPage() {
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
-        .small { font-size: 13px; color:#cbd5e1; margin: 6px 0 0; }
-        .small :global(a) { color:#00b4ff; text-decoration: underline; }
-        .msg { margin-top: 10px; color:#e5e7eb; }
+        button:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+        .small {
+          font-size: 13px;
+          color: #cbd5e1;
+          margin: 6px 0 0;
+        }
+        .small :global(a) {
+          color: #00b4ff;
+          text-decoration: underline;
+        }
+        .msg {
+          margin-top: 10px;
+          color: #e5e7eb;
+        }
       `}</style>
     </Layout>
   );

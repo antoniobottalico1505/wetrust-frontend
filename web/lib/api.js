@@ -1,24 +1,29 @@
 // lib/api.js
 
-// 1) Base URL: se non è settata una env "public", in produzione su Vercel
-// conviene usare un proxy same-origin: /api  (con rewrites in vercel.json)
+// 1) Base URL:
+// - Se NEXT_PUBLIC_API_URL è settata => usa quella (es. https://...onrender.com o "/api")
+// - Altrimenti in browser usa "/api" (proxy same-origin su Vercel tramite rewrites)
+// - In SSR fallback al tuo Render (meglio di niente)
 const ENV_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.REACT_APP_API_URL ||
   process.env.VITE_API_URL ||
   "";
 
-// Fallback ragionato:
-// - Browser: /api (così chiami https://tuosito.vercel.app/api/... e Vercel fa proxy verso Render)
-// - SSR (se mai servisse): fallback al tuo dominio legacy
 const API_BASE =
   ENV_BASE ||
-  (typeof window !== "undefined" ? "/api" : "https://wetrust-frontend.onrender.com/");
+  (typeof window !== "undefined" ? "/api" : "https://wetrust-frontend.onrender.com");
 
+// --- Token helpers ---
 function readToken() {
   if (typeof window === "undefined") return null;
   try {
-    return localStorage.getItem("wetrust_token");
+    return (
+      localStorage.getItem("wetrust_token") ||
+      localStorage.getItem("token") ||
+      sessionStorage.getItem("wetrust_token") ||
+      sessionStorage.getItem("token")
+    );
   } catch {
     return null;
   }
@@ -42,37 +47,55 @@ function joinUrl(base, path) {
   return `${b}${p}`;
 }
 
+function headersToObject(h) {
+  // Supporta sia plain object sia Headers
+  if (!h) return {};
+  if (typeof Headers !== "undefined" && h instanceof Headers) {
+    const obj = {};
+    for (const [k, v] of h.entries()) obj[k] = v;
+    return obj;
+  }
+  return { ...h };
+}
+
 export async function apiFetch(path, opts = {}) {
   // opts.auth === false => NON aggiunge Authorization
   const { auth, timeoutMs = 30000, ...fetchOpts } = opts;
 
-  const headers = { ...(fetchOpts.headers || {}) };
+  const headers = headersToObject(fetchOpts.headers);
 
+  // Aggiunge token se disponibile
   const token = readToken();
-  if (auth !== false && token) headers.Authorization = `Bearer ${token}`;
+  if (auth !== false && token && !headers.Authorization && !headers.authorization) {
+    headers.Authorization = `Bearer ${token}`;
+  }
 
   // Body
   let body = fetchOpts.body;
   const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
 
-  // Se body è un plain object o array, lo trasformo in JSON automaticamente
+  // Normalizza Content-Type se passi oggetti / JSON
   if (isPlainObject(body) || Array.isArray(body)) {
     body = JSON.stringify(body);
-    if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
+    if (!headers["Content-Type"] && !headers["content-type"]) {
+      headers["Content-Type"] = "application/json";
+    }
   } else if (body != null && !isFormData && typeof body === "object") {
-    // altri oggetti serializzabili
     body = JSON.stringify(body);
-    if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
-  } else if (
-    typeof body === "string" &&
-    !isFormData &&
-    !headers["Content-Type"]
-  ) {
-    // Se passi JSON.stringify(...) ma ti dimentichi l'header:
+    if (!headers["Content-Type"] && !headers["content-type"]) {
+      headers["Content-Type"] = "application/json";
+    }
+  } else if (typeof body === "string" && !isFormData && !headers["Content-Type"] && !headers["content-type"]) {
     const t = body.trim();
     if (t.startsWith("{") || t.startsWith("[")) {
       headers["Content-Type"] = "application/json";
     }
+  }
+
+  // Per GET/HEAD, evita body (alcuni server/proxy lo odiano)
+  const method = (fetchOpts.method || "GET").toUpperCase();
+  if ((method === "GET" || method === "HEAD") && body != null) {
+    body = undefined;
   }
 
   const url =
@@ -80,24 +103,27 @@ export async function apiFetch(path, opts = {}) {
       ? path
       : joinUrl(API_BASE, path);
 
-  const controller =
-    typeof AbortController !== "undefined" ? new AbortController() : null;
-  const t = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   let res;
   try {
     res = await fetch(url, {
       ...fetchOpts,
+      method,
       body,
       headers,
       signal: controller ? controller.signal : undefined,
     });
   } catch (e) {
+    const aborted = controller && e && (e.name === "AbortError" || String(e).includes("AbortError"));
     throw new Error(
-      `Impossibile raggiungere l’API (Failed to fetch). URL: ${url} — controlla API_BASE, HTTPS e CORS.`
+      aborted
+        ? `Timeout API dopo ${timeoutMs}ms. URL: ${url}`
+        : `Impossibile raggiungere l’API (Failed to fetch). URL: ${url} — controlla API_BASE, HTTPS e CORS.`
     );
   } finally {
-    if (t) clearTimeout(t);
+    if (timer) clearTimeout(timer);
   }
 
   // 204 No Content
@@ -105,7 +131,7 @@ export async function apiFetch(path, opts = {}) {
 
   const ct = (res.headers.get("content-type") || "").toLowerCase();
 
-  let data;
+  let data = null;
   if (ct.includes("application/json")) {
     try {
       data = await res.json();
@@ -117,10 +143,18 @@ export async function apiFetch(path, opts = {}) {
     data = text ? { message: text } : null;
   }
 
+  // Errore: status non ok, oppure payload {ok:false}
   if (!res.ok || (data && data.ok === false)) {
     const msg =
-      (data && (data.error || data.message)) || `Errore API (${res.status})`;
-    throw new Error(msg);
+      (data && (data.error || data.message)) ||
+      `Errore API (${res.status})`;
+
+    // Migliora debug: include status+url in dev
+    const err = new Error(msg);
+    err.status = res.status;
+    err.url = url;
+    err.data = data;
+    throw err;
   }
 
   return data ?? { ok: true };
