@@ -15,6 +15,14 @@ const nodemailer = require("nodemailer");
 const Stripe = require("stripe");
 const { StreamChat } = require("stream-chat");
 
+// ---------------- TWILIO ENV (COMPAT) ----------------
+// Supporta sia i nomi "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN"
+// sia i nomi "TWILIO_SID / TWILIO_TOKEN"
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || process.env.TWILIO_SID || "";
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || process.env.TWILIO_TOKEN || "";
+const TWILIO_FROM = process.env.TWILIO_FROM || "";
+const TWILIO_VERIFY_SERVICE_SID = process.env.TWILIO_VERIFY_SERVICE_SID || "";
+
 // ---------------- IN-MEMORY STORE (DEMO) ----------------
 // In produzione: sostituisci con DB vero (Postgres/Mongo ecc.)
 const users = [];
@@ -111,11 +119,8 @@ async function start() {
         })
       : null;
 
-  // Twilio (opzionale)
-  const twilioClient =
-    process.env.TWILIO_SID && process.env.TWILIO_TOKEN
-      ? twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN)
-      : null;
+// Twilio (opzionale)
+const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) : null;
 
   // Stripe (opzionale)
   const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
@@ -191,58 +196,110 @@ async function start() {
     return reply.send({ ok: true, token, user: publicUser(u) });
   });
 
-  // ---------- AUTH: SMS SEND CODE ----------
-  app.post("/auth/sms/send", async (request, reply) => {
-    const { phone } = request.body || {};
-    const cleanPhone = String(phone || "").trim();
-    if (!cleanPhone) return reply.code(400).send({ ok: false, error: "Numero richiesto." });
+ // ---------- AUTH: SMS SEND CODE ----------
+app.post("/auth/sms/send", async (request, reply) => {
+  const { phone } = request.body || {};
+  const cleanPhone = String(phone || "").trim();
+  if (!cleanPhone) return reply.code(400).send({ ok: false, error: "Numero richiesto." });
 
-    const code = randomCode();
-    smsCodes.set(cleanPhone, { code, expiresAt: Date.now() + 5 * 60 * 1000 });
+  // ✅ Se Verify è configurato, usa Verify (OTP serio, niente codice in RAM)
+  if (twilioClient && TWILIO_VERIFY_SERVICE_SID) {
+    try {
+      const r = await twilioClient.verify.v2
+        .services(TWILIO_VERIFY_SERVICE_SID)
+        .verifications.create({ to: cleanPhone, channel: "sms" });
 
-    if (twilioClient && process.env.TWILIO_FROM) {
-      try {
-        await twilioClient.messages.create({
-          to: cleanPhone,
-          from: process.env.TWILIO_FROM,
-          body: `WeTrust codice: ${code}`,
-        });
-      } catch (e) {
-        return reply.code(500).send({ ok: false, error: "Errore invio SMS." });
-      }
+      return reply.send({ ok: true, sent: true, via: "verify", status: r.status });
+    } catch (e) {
+      request.log.error(e, "Twilio Verify send failed");
+      return reply.code(500).send({ ok: false, error: e.message || "Errore invio SMS (Verify)." });
     }
+  }
 
-    // per debug/dev: ritorno il codice se Twilio non è configurato
-    return reply.send({ ok: true, sent: true, devCode: twilioClient ? undefined : code });
-  });
+  // 🔁 Fallback: vecchia logica (codice in memoria + SMS normale)
+  const code = randomCode();
+  smsCodes.set(cleanPhone, { code, expiresAt: Date.now() + 5 * 60 * 1000 });
+
+  if (twilioClient && TWILIO_FROM) {
+    try {
+      await twilioClient.messages.create({
+        to: cleanPhone,
+        from: TWILIO_FROM,
+        body: `WeTrust codice: ${code}`,
+      });
+    } catch (e) {
+      request.log.error(e, "Twilio SMS send failed");
+      return reply.code(500).send({ ok: false, error: e.message || "Errore invio SMS." });
+    }
+  }
+
+  // per debug/dev: ritorno il codice se Twilio non è configurato
+  return reply.send({ ok: true, sent: true, devCode: twilioClient ? undefined : code });
+});
 
   // ---------- AUTH: SMS VERIFY ----------
-  app.post("/auth/sms/verify", async (request, reply) => {
-    const { phone, code } = request.body || {};
-    const cleanPhone = String(phone || "").trim();
-    const cleanCode = String(code || "").trim();
-    const entry = smsCodes.get(cleanPhone);
+app.post("/auth/sms/verify", async (request, reply) => {
+  const { phone, code } = request.body || {};
+  const cleanPhone = String(phone || "").trim();
+  const cleanCode = String(code || "").trim();
 
-    if (!entry || entry.expiresAt < Date.now()) return reply.code(400).send({ ok: false, error: "Codice scaduto." });
-    if (entry.code !== cleanCode) return reply.code(400).send({ ok: false, error: "Codice errato." });
+  if (!cleanPhone) return reply.code(400).send({ ok: false, error: "Numero richiesto." });
+  if (!cleanCode) return reply.code(400).send({ ok: false, error: "Codice richiesto." });
 
-    smsCodes.delete(cleanPhone);
+  // ✅ Se Verify è configurato, verifica tramite Twilio Verify
+  if (twilioClient && TWILIO_VERIFY_SERVICE_SID) {
+    try {
+      const check = await twilioClient.verify.v2
+        .services(TWILIO_VERIFY_SERVICE_SID)
+        .verificationChecks.create({ to: cleanPhone, code: cleanCode });
 
-    let u = users.find((x) => x.phone === cleanPhone);
-    if (!u) {
-      u = {
-        id: String(Date.now()),
-        email: null,
-        phone: cleanPhone,
-        passwordHash: null,
-        createdAt: new Date().toISOString(),
-      };
-      users.push(u);
+      if (check.status !== "approved") {
+        return reply.code(400).send({ ok: false, error: "Codice errato o scaduto." });
+      }
+
+      // login/creazione utente come già fai tu
+      let u = users.find((x) => x.phone === cleanPhone);
+      if (!u) {
+        u = {
+          id: String(Date.now()),
+          email: null,
+          phone: cleanPhone,
+          passwordHash: null,
+          createdAt: new Date().toISOString(),
+        };
+        users.push(u);
+      }
+
+      const token = signToken({ id: u.id });
+      return reply.send({ ok: true, token, user: publicUser(u) });
+    } catch (e) {
+      request.log.error(e, "Twilio Verify check failed");
+      return reply.code(500).send({ ok: false, error: e.message || "Errore verifica SMS (Verify)." });
     }
+  }
 
-    const token = signToken({ id: u.id });
-    return reply.send({ ok: true, token, user: publicUser(u) });
-  });
+  // 🔁 Fallback: vecchia logica in memoria
+  const entry = smsCodes.get(cleanPhone);
+  if (!entry || entry.expiresAt < Date.now()) return reply.code(400).send({ ok: false, error: "Codice scaduto." });
+  if (entry.code !== cleanCode) return reply.code(400).send({ ok: false, error: "Codice errato." });
+
+  smsCodes.delete(cleanPhone);
+
+  let u = users.find((x) => x.phone === cleanPhone);
+  if (!u) {
+    u = {
+      id: String(Date.now()),
+      email: null,
+      phone: cleanPhone,
+      passwordHash: null,
+      createdAt: new Date().toISOString(),
+    };
+    users.push(u);
+  }
+
+  const token = signToken({ id: u.id });
+  return reply.send({ ok: true, token, user: publicUser(u) });
+});
 
   // ---------- AUTH: EMAIL SEND CODE ----------
   app.post("/auth/email/send", async (request, reply) => {
