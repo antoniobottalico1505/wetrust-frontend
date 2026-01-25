@@ -1,9 +1,5 @@
-// vercel.json (in root)
-{
+﻿{
   "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "https://wetrust-frontend.onrender.com/:path*"
-    }
+    { "source": "/api/:path*", "destination": "https://wetrust-frontend.onrender.com/:path*" }
   ]
 }
