@@ -2,6 +2,31 @@ import { useEffect, useMemo, useState } from "react";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../lib/api";
 import { useRouter } from "next/router";
+import Link from "next/link";
+
+function getToken() {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      localStorage.getItem("wetrust_token") ||
+      localStorage.getItem("token") ||
+      sessionStorage.getItem("token")
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function apiAuthFetch(path, options = {}) {
+  const token = getToken();
+  const headers = { ...(options.headers || {}) };
+
+  if (token && !headers.Authorization) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return apiFetch(path, { ...options, headers });
+}
 
 export default function ChatRoom() {
   const router = useRouter();
@@ -10,21 +35,35 @@ export default function ChatRoom() {
   const [list, setList] = useState([]);
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
+  const [noAuth, setNoAuth] = useState(false);
 
   async function load() {
     if (!id) return;
+
+    const token = getToken();
+    if (!token) {
+      setNoAuth(true);
+      setErr("Devi accedere per usare la chat (token mancante).");
+      return;
+    }
+
     try {
-      const data = await apiFetch(`/matches/${id}/messages`);
+      setNoAuth(false);
+      const data = await apiAuthFetch(`/matches/${id}/messages`);
       setList(data.messages || []);
       setErr("");
     } catch (e) {
-      setErr(e.message);
+      setErr(e?.message || "Errore nel caricamento messaggi");
     }
   }
 
   useEffect(() => {
+    if (!id) return;
     load();
-    const t = setInterval(load, 2500);
+    const t = setInterval(() => {
+      if (!getToken()) return;
+      load();
+    }, 2500);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -32,15 +71,23 @@ export default function ChatRoom() {
   async function send(e) {
     e.preventDefault();
     if (!text.trim()) return;
+
+    const token = getToken();
+    if (!token) {
+      setNoAuth(true);
+      setErr("Devi accedere per inviare messaggi (token mancante).");
+      return;
+    }
+
     try {
-      await apiFetch(`/matches/${id}/messages`, {
+      await apiAuthFetch(`/matches/${id}/messages`, {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: { text: text.trim() },
       });
       setText("");
       await load();
     } catch (e2) {
-      setErr(e2.message);
+      setErr(e2?.message || "Errore invio messaggio");
     }
   }
 
@@ -49,7 +96,20 @@ export default function ChatRoom() {
   return (
     <Layout title="WeTrust — Chat">
       <h1>Chat</h1>
-      {err && <p className="err">{err}</p>}
+
+      {err && (
+        <p className="err">
+          {err}{" "}
+          {noAuth && (
+            <>
+              <Link href="/login" className="lnk">
+                Vai al login
+              </Link>
+              .
+            </>
+          )}
+        </p>
+      )}
 
       <div className="wrap">
         <div className="box">
@@ -67,13 +127,15 @@ export default function ChatRoom() {
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Scrivi un messaggio…"
+            disabled={noAuth}
           />
-          <button>Invia</button>
+          <button disabled={noAuth}>Invia</button>
         </form>
       </div>
 
       <style jsx>{`
         .err { opacity: .95; }
+        .lnk { text-decoration: underline; color: #a5f3fc; font-weight: 700; }
         .wrap { max-width: 820px; }
         .box {
           background: rgba(15, 23, 42, 0.95);
@@ -94,11 +156,7 @@ export default function ChatRoom() {
         .meta { opacity: .7; font-size: 11px; margin-bottom: 4px; }
         .txt { font-size: 14px; }
 
-        .form {
-          margin-top: 10px;
-          display: flex;
-          gap: 8px;
-        }
+        .form { margin-top: 10px; display: flex; gap: 8px; }
         input {
           flex: 1;
           border-radius: 999px;

@@ -1,158 +1,279 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
+import { AuthContext } from "./_app";
 
 export default function RequestsPage() {
+  const router = useRouter();
+
+  const auth = useContext(AuthContext) || {};
+  const user = auth.user ?? auth[0] ?? null;
+  const ready = auth.ready ?? auth[2] ?? false;
+
   const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const selectedId =
+    typeof router.query.id === "string" ? router.query.id : null;
+
+  const selected = useMemo(() => {
+    if (!selectedId) return null;
+    return requests.find((r) => String(r.id) === String(selectedId)) || null;
+  }, [selectedId, requests]);
 
   async function load() {
     try {
       setLoading(true);
-      const data = await apiFetch("/requests", { auth: false });
-
-      // compat: alcune API rispondono con items invece di requests
+      setMsg("");
+      // ✅ endpoint protetto -> serve token -> apiFetch aggiunge Authorization da solo
+      const data = await apiFetch("/requests");
       const list = data?.requests || data?.items || [];
       setRequests(list);
-
-      setError("");
     } catch (err) {
-      setError(err?.message || "Errore nel caricare le richieste.");
+      setMsg(err?.message || "Errore nel caricare le richieste.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function accept(id) {
+  useEffect(() => {
+    if (!ready) return;
+    if (!user) return; // ✅ non chiamare endpoint protetto se non loggato
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, user]);
+
+  function openDetails(id) {
+    router.push(
+      { pathname: "/requests", query: { id } },
+      undefined,
+      { shallow: true }
+    );
+  }
+
+  function closeDetails() {
+    router.push("/requests", undefined, { shallow: true });
+  }
+
+  async function accept(requestId) {
+    setMsg("");
     try {
-      await apiFetch(`/requests/${id}/accept`, { method: "POST" });
+      if (!user?.id) throw new Error("Devi essere loggato per accettare.");
+
+      // ✅ FIX: nel backend ESISTE /matches (non /requests/:id/accept)
+      const data = await apiFetch("/matches", {
+        method: "POST",
+        body: { requestId, helperId: user.id },
+      });
+
+      const match = data?.match || data?.item || data?.items || null;
+
+      // se ritorna l'oggetto match con id -> vai subito alla chat
+      if (match?.id) {
+        router.push(`/chat/${match.id}`);
+        return;
+      }
+
+      setMsg("Richiesta accettata ✅");
       await load();
-      alert("Accettata. Vai su Chat.");
-    } catch (e) {
-      alert(e?.message || "Errore nell’accettazione.");
+    } catch (err) {
+      setMsg(err?.message || "Errore durante l’accettazione.");
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  function canAccept(r) {
+    const ownerId = r.user_id ?? r.userId ?? r.userID;
+    // non permettere di accettare la propria richiesta
+    if (user?.id && ownerId && String(ownerId) === String(user.id)) return false;
+    return true;
+  }
 
   return (
     <Layout title="WeTrust — Richieste">
       <h1>Richieste</h1>
-      <p className="subtitle">
-        Qui compaiono le richieste pubblicate. Per accettare e chattare devi essere loggato.
-      </p>
 
-      {loading && <p>Caricamento…</p>}
-      {error && <p className="err">{error}</p>}
+      {!ready && <p>Caricamento…</p>}
 
-      {!loading && !error && requests.length === 0 && (
-        <p>Ancora nessuna richiesta. Creane una dalla home.</p>
+      {ready && !user && (
+        <div className="card">
+          <p>Per vedere/accettare le richieste devi essere loggato.</p>
+          <Link className="btn" href="/login">
+            Vai al login
+          </Link>
+
+          <style jsx>{`
+            .card {
+              margin-top: 12px;
+              max-width: 520px;
+              border-radius: 18px;
+              background: rgba(15, 23, 42, 0.95);
+              border: 1px solid rgba(148, 163, 184, 0.35);
+              padding: 14px 16px;
+            }
+            .btn {
+              display: inline-block;
+              margin-top: 10px;
+              border-radius: 999px;
+              border: none;
+              padding: 10px 16px;
+              font-weight: 900;
+              cursor: pointer;
+              background: linear-gradient(135deg, #00b4ff, #00e0a0);
+              color: #020617;
+              text-decoration: none;
+            }
+          `}</style>
+        </div>
       )}
 
-      <div className="list">
-        {requests.map((r) => (
-          <article key={r.id} className="card">
-            <div className="cardTop">
-              <h2>{r.title || "Richiesta"}</h2>
-              <span className={`badge ${r.status || "open"}`}>{r.status || "open"}</span>
+      {ready && user && (
+        <>
+          {msg && <p className="msg">{msg}</p>}
+          {loading && <p>Caricamento…</p>}
+
+          {!loading && requests.length === 0 && (
+            <p>Nessuna richiesta per ora.</p>
+          )}
+
+          <div className="list">
+            {requests.map((r) => (
+              <article key={r.id} className="card2">
+                <h2>{r.title || "Richiesta"}</h2>
+
+                {r.city ? <p className="city">{r.city}</p> : null}
+
+                <p className="desc">{r.description}</p>
+
+                <div className="row">
+                  <button
+                    className="btn2"
+                    onClick={() => accept(r.id)}
+                    disabled={!canAccept(r)}
+                    title={!canAccept(r) ? "Non puoi accettare la tua richiesta" : ""}
+                  >
+                    Accetta
+                  </button>
+
+                  {/* ✅ FIX: niente /requests/<id> (404). Usiamo /requests?id=<id> */}
+                  <button className="ghost" onClick={() => openDetails(r.id)}>
+                    Dettagli
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          {/* ✅ Dettaglio inline (così non esiste più il 404) */}
+          {selected && (
+            <div className="overlay" onClick={closeDetails}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modalTop">
+                  <h3>{selected.title || "Dettaglio richiesta"}</h3>
+                  <button className="x" onClick={closeDetails} aria-label="Chiudi">
+                    ✕
+                  </button>
+                </div>
+
+                {selected.city ? <p className="city2">{selected.city}</p> : null}
+                <p className="desc2">{selected.description}</p>
+
+                <div className="modalRow">
+                  <button
+                    className="btn2"
+                    onClick={() => accept(selected.id)}
+                    disabled={!canAccept(selected)}
+                  >
+                    Accetta
+                  </button>
+                  <button className="ghost" onClick={closeDetails}>
+                    Chiudi
+                  </button>
+                </div>
+              </div>
             </div>
+          )}
 
-            <p className="desc">{r.description}</p>
+          <style jsx>{`
+            .msg { opacity: 0.95; margin: 10px 0; }
 
-            <div className="meta">
-              <span className="city">{r.city || "—"}</span>
-              <button className="btn" onClick={() => accept(r.id)}>
-                Accetta
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
+            .list {
+              display: grid;
+              gap: 12px;
+              grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            }
+            .card2 {
+              border-radius: 18px;
+              background: rgba(15, 23, 42, 0.95);
+              border: 1px solid rgba(148, 163, 184, 0.35);
+              padding: 14px 16px;
+            }
+            h2 { margin: 0 0 6px; font-size: 16px; }
+            .city { margin: 0 0 8px; font-size: 12px; opacity: 0.85; }
+            .desc { margin: 0; opacity: 0.92; font-size: 14px; }
+            .row { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
 
-      <style jsx>{`
-        .subtitle { font-size: 14px; opacity: .92; margin-bottom: 14px; }
-        .err { opacity: .95; }
+            .btn2 {
+              border-radius: 999px;
+              border: none;
+              padding: 10px 16px;
+              font-weight: 900;
+              cursor: pointer;
+              background: linear-gradient(135deg, #00b4ff, #00e0a0);
+              color: #020617;
+            }
+            .btn2:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        .list {
-          display: grid;
-          gap: 12px;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        }
+            .ghost {
+              border-radius: 999px;
+              padding: 9px 14px;
+              font-weight: 900;
+              background: transparent;
+              border: 1px solid rgba(148, 163, 184, 0.6);
+              color: #ffffff;
+              cursor: pointer;
+            }
 
-        .card {
-          border-radius: 18px;
-          background: rgba(15, 23, 42, 0.95);
-          border: 1px solid rgba(148, 163, 184, 0.35);
-          padding: 14px 16px;
-          transition: transform 0.12s ease, border-color 0.12s ease;
-        }
-
-        .card:hover {
-          transform: translateY(-2px);
-          border-color: rgba(0, 180, 255, 0.5);
-        }
-
-        .cardTop {
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
-          align-items: flex-start;
-        }
-
-        .card h2 {
-          font-size: 16px;
-          margin: 0;
-          line-height: 1.2;
-        }
-
-        .desc {
-          font-size: 14px;
-          margin: 10px 0 12px;
-          opacity: 0.92;
-        }
-
-        .meta {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .city {
-          opacity: 0.85;
-          font-size: 12px;
-        }
-
-        .badge {
-          padding: 4px 10px;
-          border-radius: 999px;
-          border: 1px solid rgba(148, 163, 184, 0.5);
-          font-size: 12px;
-          opacity: 0.95;
-          text-transform: lowercase;
-        }
-
-        .badge.open { border-color: rgba(0,180,255,0.35); }
-        .badge.matched { border-color: rgba(0,224,160,0.35); }
-        .badge.completed { border-color: rgba(229,231,235,0.35); }
-
-        .btn {
-          border-radius: 999px;
-          border: 1px solid rgba(0, 180, 255, 0.35);
-          background: rgba(2, 6, 23, 0.35);
-          color: #e5e7eb;
-          padding: 8px 12px;
-          cursor: pointer;
-          font-weight: 800;
-        }
-
-        .btn:hover {
-          border-color: rgba(0, 224, 160, 0.55);
-        }
-      `}</style>
+            .overlay {
+              position: fixed;
+              inset: 0;
+              background: rgba(2, 6, 23, 0.6);
+              display: grid;
+              place-items: center;
+              padding: 16px;
+              z-index: 50;
+            }
+            .modal {
+              width: 100%;
+              max-width: 700px;
+              border-radius: 18px;
+              background: rgba(15, 23, 42, 0.98);
+              border: 1px solid rgba(148, 163, 184, 0.35);
+              padding: 14px 16px;
+            }
+            .modalTop {
+              display: flex;
+              justify-content: space-between;
+              gap: 10px;
+              align-items: center;
+            }
+            .x {
+              border: 1px solid rgba(148, 163, 184, 0.6);
+              background: transparent;
+              color: #fff;
+              border-radius: 10px;
+              padding: 6px 10px;
+              cursor: pointer;
+              font-weight: 900;
+            }
+            .city2 { margin: 8px 0; opacity: 0.85; font-size: 12px; }
+            .desc2 { margin: 0; opacity: 0.92; font-size: 14px; }
+            .modalRow { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+          `}</style>
+        </>
+      )}
     </Layout>
   );
 }
