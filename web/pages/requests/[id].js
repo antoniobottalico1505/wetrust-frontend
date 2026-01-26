@@ -102,13 +102,25 @@ export default function RequestDetail({ id }) {
 
   useEffect(() => { if (id) load(); }, [id]);
 
+  // ✅ FIX: niente /requests/:id/accept (Not Found). Creo match con POST /matches.
   async function accept() {
     setMsg("");
     try {
-      const data = await apiFetch(`/requests/${id}/accept`, { method: "POST" });
-      setMatch(data.match);
+      if (!user?.id) throw new Error("Devi accedere per accettare.");
+
+      const data = await apiFetch("/matches", {
+        method: "POST",
+        body: { requestId: id, helperId: user.id },
+      });
+
+      const m = data?.match || null;
+      if (!m?.id) throw new Error("Match creato ma risposta incompleta.");
+
+      setMatch(m);
       setMsg("Richiesta accettata ✅ Ora potete chattare.");
-    } catch (err) { setMsg(err.message); }
+    } catch (err) {
+      setMsg(err.message);
+    }
   }
 
   async function setPrice() {
@@ -161,7 +173,8 @@ export default function RequestDetail({ id }) {
             <div>
               <h1>{reqData.title}</h1>
               <p className="desc">{reqData.description}</p>
-              <div className="meta">
+              <div className="luogo">
+                {/* ✅ città nel dettaglio */}
                 {reqData.city && <span>{reqData.city}</span>}
                 <span className="badge">{reqData.status}</span>
               </div>
@@ -169,7 +182,7 @@ export default function RequestDetail({ id }) {
 
             <div className="actions">
               {!ready ? null : !user ? (
-                <Link href="/login" className="btn">Accedi via SMS</Link>
+                <Link href="/login" className="btn">Accedi</Link>
               ) : !match && user.id !== reqData.user_id ? (
                 <button onClick={accept} className="btn">Accetta richiesta</button>
               ) : null}
