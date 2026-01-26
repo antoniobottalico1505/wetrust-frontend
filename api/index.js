@@ -48,7 +48,13 @@ function verifyToken(token) {
 }
 
 function publicUser(u) {
-  return { id: u.id, email: u.email, phone: u.phone, createdAt: u.createdAt };
+  return {
+    id: u.id,
+    email: u.email,
+    phone: u.phone,
+    createdAt: u.createdAt,
+    stripe_account_id: u.stripeAccountId || null,
+  };
 }
 
 function requireAuth(request, reply, done) {
@@ -137,6 +143,46 @@ const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACC
     return { ok: true, user: publicUser(request.user) };
   });
 
+// ---------- STRIPE CONNECT ONBOARDING ----------
+app.post("/stripe/connect/onboard", { preHandler: [requireAuth] }, async (request, reply) => {
+  if (!stripe) return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
+
+  const baseUrl =
+    request.body?.baseUrl ||
+    request.body?.base_url ||
+    request.headers.origin ||
+    `${request.headers["x-forwarded-proto"] || "https"}://${request.headers.host}`;
+
+  try {
+    // 1) se l’utente ha già un account Stripe, riusalo
+    let accountId = request.user.stripeAccountId;
+
+    // 2) altrimenti crealo
+    if (!accountId) {
+      const acct = await stripe.accounts.create({
+        type: "express",
+        email: request.user.email || undefined,
+        capabilities: { transfers: { requested: true } },
+      });
+      accountId = acct.id;
+      request.user.stripeAccountId = accountId; // <- salva sul profilo utente (qui è in-memory)
+    }
+
+    // 3) genera il link di onboarding
+    const link = await stripe.accountLinks.create({
+      account: accountId,
+      type: "account_onboarding",
+      refresh_url: `${baseUrl}/profile`,
+      return_url: `${baseUrl}/profile`,
+    });
+
+    return reply.send({ ok: true, url: link.url, accountId });
+  } catch (e) {
+    request.log.error(e, "Stripe connect onboarding failed");
+    return reply.code(500).send({ ok: false, error: e.message || "Errore Stripe Connect" });
+  }
+});
+
   // ---------- STREAM TOKEN ----------
   // Il frontend chiama /stream/token dopo login e ottiene apiKey + token.
   app.get("/stream/token", { preHandler: [requireAuth] }, async (request, reply) => {
@@ -173,6 +219,7 @@ const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACC
       phone: null,
       passwordHash: await bcrypt.hash(String(password), 10),
       createdAt: new Date().toISOString(),
+stripeAccountId: null,
     };
     users.push(u);
 
@@ -266,6 +313,7 @@ app.post("/auth/sms/verify", async (request, reply) => {
           phone: cleanPhone,
           passwordHash: null,
           createdAt: new Date().toISOString(),
+stripeAccountId: null,
         };
         users.push(u);
       }
@@ -346,6 +394,7 @@ app.post("/auth/sms/verify", async (request, reply) => {
         phone: null,
         passwordHash: null,
         createdAt: new Date().toISOString(),
+stripeAccountId: null,
       };
       users.push(u);
     }
@@ -355,25 +404,24 @@ app.post("/auth/sms/verify", async (request, reply) => {
   });
 
   // ---------------- REQUESTS ----------------
-  app.get("/requests", { preHandler: [requireAuth] }, async () => {
-    return { ok: true, items: requests };
-  });
+ app.post("/requests", { preHandler: [requireAuth] }, async (request, reply) => {
+  const { title, description, city } = request.body || {};
+  if (!title) return reply.code(400).send({ ok: false, error: "Titolo obbligatorio" });
 
-  app.post("/requests", { preHandler: [requireAuth] }, async (request, reply) => {
-    const { title, description } = request.body || {};
-    if (!title) return reply.code(400).send({ ok: false, error: "Titolo obbligatorio" });
+  const cleanCity = typeof city === "string" ? city.trim() : "";
 
-    const r = {
-      id: String(Date.now()),
-      userId: request.user.id,
-      title: String(title),
-      description: String(description || ""),
-      createdAt: new Date().toISOString(),
-      status: "OPEN",
-    };
-    requests.push(r);
-    return reply.send({ ok: true, item: r });
-  });
+  const r = {
+    id: String(Date.now()),
+    userId: request.user.id,
+    title: String(title),
+    description: String(description || ""),
+    city: cleanCity || null,
+    createdAt: new Date().toISOString(),
+    status: "OPEN",
+  };
+  requests.push(r);
+  return reply.send({ ok: true, item: r });
+});
 
   // ---------------- MATCHES ----------------
   app.get("/matches", { preHandler: [requireAuth] }, async (request) => {
@@ -387,6 +435,10 @@ app.post("/auth/sms/verify", async (request, reply) => {
 
     const reqItem = requests.find((x) => x.id === String(requestId));
     if (!reqItem) return reply.code(404).send({ ok: false, error: "Request non trovata" });
+
+if (String(reqItem.userId) === String(helperId)) {
+  return reply.code(400).send({ ok: false, error: "Non puoi accettare la tua richiesta" });
+}
 
     const m = {
       id: String(Date.now()),

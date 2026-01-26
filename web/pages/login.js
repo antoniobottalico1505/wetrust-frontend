@@ -8,25 +8,26 @@ import { setSession } from "../lib/session";
 function persistToken(token) {
   if (typeof window === "undefined") return;
   try {
-    // Chiave principale (coerente con lib/api.js)
     localStorage.setItem("wetrust_token", token);
-    // Compat extra (se qualche parte del codice legge "token")
-    localStorage.setItem("token", token);
-  } catch {
-    // ignora (storage disabilitato / privacy mode)
-  }
+    localStorage.setItem("token", token); // compat
+  } catch {}
+}
+
+function looksLike404(err) {
+  const msg = String(err?.message || "");
+  return msg.includes("404") || msg.toLowerCase().includes("not found");
 }
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [mode, setMode] = useState("email"); // "email" | "sms"
+  const [mode, setMode] = useState("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const [phone, setPhone] = useState(""); // es +39333...
+  const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
-  const [smsStep, setSmsStep] = useState(1); // 1 invio, 2 verifica
+  const [smsStep, setSmsStep] = useState(1);
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
@@ -40,18 +41,17 @@ export default function LoginPage() {
 
       const data = await apiFetch("/auth/email/login", {
         method: "POST",
-        auth: false, // login non richiede token
-        body: { email, password }, // apiFetch serializza da solo
+        auth: false,
+        body: { email, password },
       });
 
-      // ✅ PRENDO IL TOKEN UNA VOLTA SOLA E LO SALVO SEMPRE
       const token = data?.token || data?.access_token;
       if (!token) throw new Error("Login riuscito ma token mancante nella risposta API");
 
       persistToken(token);
       setSession(token, data.user);
 
-      await router.push("/");
+      await router.replace("/");
     } catch (err) {
       setMsg(err?.message || "Errore login");
     } finally {
@@ -66,15 +66,28 @@ export default function LoginPage() {
     try {
       setLoading(true);
 
-      // ✅ nel backend è /auth/sms/send (non /auth/sms/start)
-      await apiFetch("/auth/sms/send", {
-        method: "POST",
-        auth: false,
-        body: { phone },
-      });
+      // ✅ Prova endpoint più probabile
+      try {
+        await apiFetch("/auth/sms/send", {
+          method: "POST",
+          auth: false,
+          body: { phone },
+        });
+      } catch (err1) {
+        // ✅ Fallback se nel backend hai /auth/sms/start
+        if (looksLike404(err1)) {
+          await apiFetch("/auth/sms/start", {
+            method: "POST",
+            auth: false,
+            body: { phone },
+          });
+        } else {
+          throw err1;
+        }
+      }
 
       setSmsStep(2);
-      setMsg("Codice inviato via SMS.");
+      setMsg("Codice inviato via SMS. Se non arriva, controlla numero e riprova.");
     } catch (err) {
       setMsg(err?.message || "Errore invio SMS");
     } finally {
@@ -101,7 +114,7 @@ export default function LoginPage() {
       persistToken(token);
       setSession(token, data.user);
 
-      await router.push("/");
+      await router.replace("/");
     } catch (err) {
       setMsg(err?.message || "Errore verifica SMS");
     } finally {
@@ -144,13 +157,7 @@ export default function LoginPage() {
       {mode === "email" ? (
         <form className="card" onSubmit={loginEmail}>
           <label>Email</label>
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            type="email"
-            required
-            autoComplete="email"
-          />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required autoComplete="email" />
 
           <label>Password</label>
           <input
@@ -179,7 +186,6 @@ export default function LoginPage() {
                 required
                 autoComplete="tel"
               />
-
               <button disabled={loading}>{loading ? "Invio…" : "Invia codice SMS"}</button>
               <p className="small">Inserisci il numero con prefisso (es. +39...).</p>
             </form>
@@ -221,26 +227,17 @@ export default function LoginPage() {
       {msg && <p className="msg">{msg}</p>}
 
       <style jsx>{`
-        .tabs {
-          display: flex;
-          gap: 10px;
-          margin: 12px 0;
-          flex-wrap: wrap;
-        }
+        .tabs { display:flex; gap:10px; margin: 12px 0; flex-wrap:wrap; }
         .tab {
-          border-radius: 999px;
-          border: 1px solid rgba(148, 163, 184, 0.45);
-          background: rgba(15, 23, 42, 0.6);
-          color: #fff;
+          border-radius:999px;
+          border:1px solid rgba(148,163,184,0.45);
+          background: rgba(15,23,42,0.6);
+          color:#fff;
           padding: 8px 14px;
-          cursor: pointer;
-          font-weight: 800;
+          cursor:pointer;
+          font-weight:800;
         }
-        .active {
-          background: linear-gradient(135deg, #00b4ff, #00e0a0);
-          color: #020617;
-          border: none;
-        }
+        .active { background: linear-gradient(135deg,#00b4ff,#00e0a0); color:#020617; border:none; }
 
         .card {
           max-width: 520px;
@@ -248,14 +245,11 @@ export default function LoginPage() {
           background: rgba(15, 23, 42, 0.95);
           border: 1px solid rgba(148, 163, 184, 0.4);
           padding: 14px 16px;
-          display: flex;
-          flex-direction: column;
+          display:flex;
+          flex-direction:column;
           gap: 8px;
         }
-        label {
-          font-size: 13px;
-          color: #e5e7eb;
-        }
+        label { font-size: 13px; color:#e5e7eb; }
         input {
           border-radius: 10px;
           border: 1px solid rgba(148, 163, 184, 0.7);
@@ -274,23 +268,10 @@ export default function LoginPage() {
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
-        button:disabled {
-          opacity: 0.65;
-          cursor: not-allowed;
-        }
-        .small {
-          font-size: 13px;
-          color: #cbd5e1;
-          margin: 6px 0 0;
-        }
-        .small :global(a) {
-          color: #00b4ff;
-          text-decoration: underline;
-        }
-        .msg {
-          margin-top: 10px;
-          color: #e5e7eb;
-        }
+        button:disabled { opacity: 0.65; cursor: not-allowed; }
+        .small { font-size: 13px; color:#cbd5e1; margin: 6px 0 0; }
+        .small :global(a) { color:#00b4ff; text-decoration: underline; }
+        .msg { margin-top: 10px; color:#e5e7eb; }
       `}</style>
     </Layout>
   );

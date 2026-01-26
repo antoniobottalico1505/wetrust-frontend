@@ -20,17 +20,21 @@ export default function ContactPage() {
 
     try {
       setSending(true);
+
+      // ✅ body come oggetto: apiFetch serializza lui
       await apiFetch("/contact", {
         method: "POST",
-        body: JSON.stringify({ name, email, message }),
+        auth: false, // ✅ contatti deve essere pubblico
+        body: { name, email, message },
       });
+
       setFeedback("Messaggio inviato ✅ Ti risponderemo il prima possibile.");
       setName("");
       setEmail("");
       setMessage("");
     } catch (err) {
       console.error(err);
-      setFeedback(err.message || "Errore durante l'invio del messaggio.");
+      setFeedback(err?.message || "Errore durante l'invio del messaggio.");
     } finally {
       setSending(false);
     }
@@ -40,9 +44,7 @@ export default function ContactPage() {
     <Layout title="WeTrust — Contatti">
       <div className="wrap">
         <h1>Contatti</h1>
-        <p className="subtitle">
-          Vuoi parlare di partnership o investimento? Scrivici qui.
-        </p>
+        <p className="subtitle">Vuoi parlare di partnership o investimento? Scrivici qui.</p>
 
         <form className="form" onSubmit={handleSubmit}>
           <label>
