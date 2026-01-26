@@ -37,21 +37,9 @@ export default function Home() {
     try {
       setLoading(true);
 
-      const c = city.trim();
-
       await apiFetch("/requests", {
         method: "POST",
-        body: {
-          title: title.trim(),
-          description: description.trim(),
-          city: c || undefined,
-
-          // fallback: se il backend usa nomi diversi o nested
-          location: c || undefined,
-          town: c || undefined,
-          address: c ? { city: c } : undefined,
-          place: c ? { city: c } : undefined,
-        },
+        body: JSON.stringify({ title, description, city }),
       });
 
       setTitle("");

@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import Link from "next/link";
@@ -88,8 +88,6 @@ export default function RequestsPage() {
   const [isLogged, setIsLogged] = useState(false);
   const [meId, setMeId] = useState(ctxUser?.id ? normId(ctxUser.id) : "");
   const [loadingAccept, setLoadingAccept] = useState("");
-  const [detailsById, setDetailsById] = useState({});
-  const fetchedRef = useRef(new Set());
 
   useEffect(() => {
     setIsLogged(!!readToken());
@@ -144,52 +142,6 @@ export default function RequestsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ✅ Enrichment: se la lista non include la city, recupera i dettagli per mostrarla
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      const todo = (requests || [])
-        .map((raw) => ({ id: getRequestId(raw), city: pickCity(raw) }))
-        .filter(({ id, city }) => id && !city && !fetchedRef.current.has(id))
-        .slice(0, 25);
-
-      if (!todo.length) return;
-
-      for (const { id } of todo) fetchedRef.current.add(id);
-
-      const results = await Promise.allSettled(
-        todo.map(async ({ id }) => {
-          const data = await apiFetch(`/requests/${id}`);
-          const req = data?.request || data?.item || data?.data || data;
-          return { id, req };
-        })
-      );
-
-      if (cancelled) return;
-
-      setDetailsById((prev) => {
-        const next = { ...prev };
-        for (const r of results) {
-          if (r.status === "fulfilled" && r.value?.id && r.value?.req) {
-            next[r.value.id] = r.value.req;
-            try {
-              sessionStorage.setItem(
-                `wetrust_request_${r.value.id}`,
-                JSON.stringify(r.value.req)
-              );
-            } catch {}
-          }
-        }
-        return next;
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [requests]);
 
   function canAccept(r) {
     const o = asObj(r);
@@ -310,8 +262,7 @@ export default function RequestsPage() {
           const r = asObj(raw);
           const rid =
             getRequestId(raw) || normId(r?.id) || normId(r?._id) || String(idx);
-
-          const city = pickCity(raw) || pickCity(detailsById[rid]);
+          const city = pickCity(raw);
           const ownerId = getOwnerId(raw);
           const mine = meId && ownerId && String(meId) === String(ownerId);
 
