@@ -26,32 +26,40 @@ function normId(x) {
   return x == null ? "" : String(x);
 }
 
+function asObj(r) {
+  return r?.request ?? r?.item ?? r;
+}
+
 function getRequestId(r, fallback = "") {
-  return String(r?.id || r?._id || r?.requestId || r?.request_id || fallback || "");
+  const o = asObj(r);
+  return String(o?.id || o?._id || o?.requestId || o?.request_id || fallback || "");
 }
 
 function pickCity(r) {
+  const o = asObj(r);
   const v =
-    r?.city ??
-    r?.location ??
-    r?.town ??
-    r?.address?.city ??
-    r?.location?.city ??
-    r?.place?.city ??
+    o?.city ??
+    o?.location ??
+    o?.town ??
+    o?.address?.city ??
+    o?.location?.city ??
+    o?.place?.city ??
+    o?.place?.town ??
     "";
   return typeof v === "string" ? v.trim() : "";
 }
 
 function getOwnerId(r) {
+  const o = asObj(r);
   return String(
-    r?.user_id ??
-      r?.userId ??
-      r?.owner_id ??
-      r?.ownerId ??
-      r?.requester_id ??
-      r?.requesterId ??
-      r?.user?.id ??
-      r?.owner?.id ??
+    o?.user_id ??
+      o?.userId ??
+      o?.owner_id ??
+      o?.ownerId ??
+      o?.requester_id ??
+      o?.requesterId ??
+      o?.user?.id ??
+      o?.owner?.id ??
       ""
   );
 }
@@ -87,6 +95,7 @@ async function fetchRequestById(id) {
     `/requests?id=${encodeURIComponent(id)}`,
     `/requests/${id}/detail`,
   ];
+
   for (const ep of alt) {
     try {
       return await apiFetch(ep);
@@ -97,79 +106,107 @@ async function fetchRequestById(id) {
     }
   }
 
-  // 3) ultima spiaggia: lista e filtro
+  // 3) ultima spiaggia: carica lista e filtra
   try {
     const data = await apiFetch("/requests");
     const list = data?.requests || data?.items || data?.list || data || [];
     const arr = Array.isArray(list) ? list : [];
-    const found = arr.find((r) => getRequestId(r) === String(id)) || null;
+    const found = arr.find((r) => getRequestId(r) === normId(id)) || null;
     if (found) return { request: found };
   } catch {}
 
   throw new Error("Not found");
 }
 
-function PayBox({ onPaid }) {
+function PayBox({ match, request, onPaid }) {
   const stripe = useStripe();
   const elements = useElements();
+
+  const [amountEUR, setAmountEUR] = useState("10");
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function pay(e) {
-    e.preventDefault();
+  const amountCents = eurToCents(amountEUR);
+
+  async function createIntent() {
     setMsg("");
     if (!stripe || !elements) return;
 
     try {
       setLoading(true);
-      const res = await stripe.confirmPayment({
+
+      const data = await apiFetch(`/matches/${match.id}/pay`, {
+        method: "POST",
+        body: { amount_cents: amountCents },
+      });
+
+      const clientSecret = data?.clientSecret || data?.client_secret;
+      if (!clientSecret) throw new Error("clientSecret mancante.");
+
+      const { error } = await stripe.confirmPayment({
         elements,
-        confirmParams: { return_url: window.location.href },
+        clientSecret,
+        confirmParams: {
+          return_url: window.location.origin + "/chats",
+        },
         redirect: "if_required",
       });
-      if (res.error) throw new Error(res.error.message);
-      setMsg("Pagamento autorizzato ✅ (fondi bloccati)");
+
+      if (error) throw error;
+
+      setMsg("Pagamento completato ✅");
       onPaid?.();
-    } catch (err) {
-      setMsg(err?.message || "Errore pagamento");
+    } catch (e) {
+      setMsg(e?.message || "Errore pagamento.");
     } finally {
       setLoading(false);
     }
   }
 
+  if (!match?.id) return null;
+
   return (
     <div className="card">
-      <h3>Paga (fondi bloccati)</h3>
-      <p className="sub">Stile Vinted: il denaro resta bloccato finché confermi la consegna del servizio.</p>
-      <form onSubmit={pay}>
+      <h3>Paga</h3>
+      <p className="line">
+        Importo:{" "}
+        <input
+          value={amountEUR}
+          onChange={(e) => setAmountEUR(e.target.value)}
+          style={{ width: 80 }}
+        />{" "}
+        € ({centsToEUR(amountCents)}€)
+      </p>
+
+      <div style={{ marginTop: 10 }}>
         <PaymentElement />
-        <button disabled={loading || !stripe}>
-          {loading ? "Confermo…" : "Conferma pagamento"}
-        </button>
-      </form>
+      </div>
+
+      <button onClick={createIntent} disabled={loading || !stripe || !elements}>
+        {loading ? "..." : "Paga"}
+      </button>
+
       {msg && <p className="msg">{msg}</p>}
 
       <style jsx>{`
-        .card {
-          border-radius: 18px;
-          background: rgba(15, 23, 42, 0.95);
-          border: 1px solid rgba(148, 163, 184, 0.4);
-          padding: 14px 16px;
-          margin-top: 12px;
-        }
-        .sub { opacity: 0.9; margin: 6px 0 10px; font-size: 13px; }
         button {
           margin-top: 10px;
           border-radius: 999px;
           border: none;
-          padding: 8px 18px;
-          font-size: 14px;
-          font-weight: 700;
+          padding: 10px 16px;
+          font-weight: 900;
           cursor: pointer;
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
-        .msg { font-size: 13px; margin-top: 8px; }
+        button:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+        .msg {
+          margin-top: 8px;
+          font-size: 13px;
+        }
       `}</style>
     </div>
   );
@@ -181,341 +218,198 @@ export default function RequestDetailPage() {
 
   const auth = useContext(AuthContext) || {};
   const user = auth.user ?? auth[0] ?? null;
-  const ready = auth.ready ?? auth[2] ?? false;
 
   const [reqData, setReqData] = useState(null);
   const [match, setMatch] = useState(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
-  const [priceEUR, setPriceEUR] = useState("");
-  const [clientSecret, setClientSecret] = useState(null);
 
   const stripePromise = useMemo(() => {
+    if (typeof window === "undefined") return null;
     const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
     if (!pk) return null;
     return loadStripe(pk);
   }, []);
 
-  const ownerId =
-    reqData?.user_id ?? reqData?.userId ?? reqData?.user?.id ?? reqData?.requester_id ?? null;
-
-  const canAccept = useMemo(() => {
-    const st = String(reqData?.status || "").toLowerCase();
-    const open = !st || st === "open" || st === "opened" || st === "pending";
-    return !!user && open && !match && normId(user.id) !== normId(ownerId);
-  }, [user, reqData, match, ownerId]);
-
-  function extractMatchId(data) {
-    const m = data?.match || data?.item || data;
-    return (
-      m?.id ||
-      data?.matchId ||
-      data?.match_id ||
-      m?.matchId ||
-      m?.match_id ||
-      null
-    );
-  }
-
   async function load() {
     if (!id) return;
     setMsg("");
 
-const cached = typeof window !== "undefined" ? loadCachedRequest(String(id)) : null;
-if (cached) setReqData(cached);
+    // mostra subito i dati cache (se arrivi da 'Dettagli' della lista)
+    const cached = typeof window !== "undefined" ? loadCachedRequest(normId(id)) : null;
+    if (cached) setReqData(cached);
 
     try {
       setLoading(true);
 
-     const data = await fetchRequestById(id);
+      const data = await fetchRequestById(id);
       const request = data?.request || data?.item || data?.data || data;
+
+      if (request) cacheRequest(getRequestId(request, id), request);
       setReqData(request || null);
-if (request) cacheRequest(getRequestId(request, id), request);
 
-      const m0 = data?.match || data?.itemMatch || null;
-      if (m0?.id) {
-        setMatch(m0);
-        return;
-      }
-
-      // se loggato, prova anche /me/matches
-      if (readToken()) {
-        try {
-          const mdata = await apiFetch("/me/matches");
-          const list = mdata?.matches || mdata?.items || [];
-          const found =
-            list.find((m) => normId(m.requestId || m.request_id) === normId(id)) || null;
-          setMatch(found);
-        } catch {
-          setMatch(null);
-        }
+      // Se il backend restituisce anche un match collegato
+      const m = data?.match || request?.match || null;
+      setMatch(m);
+    } catch (e) {
+      const m = String(e?.message || "").toLowerCase();
+      if (m.includes("not found") || m.includes("404")) {
+        setMsg("Dettagli non disponibili (richiesta non trovata).");
       } else {
-        setMatch(null);
+        setMsg(e?.message || "Errore nel caricamento dettagli.");
       }
-    } catch (err) {
       setReqData(null);
       setMatch(null);
-      setMsg(err?.message || "Errore caricamento dettaglio.");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (id) load();
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, ready, user?.id]);
+  }, [id]);
+
+  const ownerId = getOwnerId(reqData);
+  const canAccept =
+    !!readToken() &&
+    !!reqData &&
+    (!ownerId || !user?.id || String(ownerId) !== String(user.id));
 
   async function accept() {
     setMsg("");
-
-const ownerId = getOwnerId(reqData);
-if (ownerId && user?.id && String(ownerId) === String(user.id)) {
-  setMsg("Non puoi accettare la tua richiesta.");
-  return;
-}
 
     if (!readToken()) {
       router.push("/login");
       return;
     }
 
+    if (ownerId && user?.id && String(ownerId) === String(user.id)) {
+      setMsg("Non puoi accettare la tua richiesta.");
+      return;
+    }
+
     try {
-      // 1) POST /matches
-      let data;
-      try {
-        data = await apiFetch("/matches", {
-          method: "POST",
-          body: { requestId: id, helperId: user?.id, request_id: id, helper_id: user?.id },
-        });
-      } catch (e) {
-        const m = String(e?.message || "").toLowerCase();
-        if (m.includes("not found") || m.includes("404")) {
-          // 2) fallback /requests/:id/accept
-          data = await apiFetch(`/requests/${id}/accept`, { method: "POST", body: { helperId: user?.id, helper_id: user?.id } });
-        } else {
-          throw e;
-        }
+      const helperId = user?.id || (await apiFetch("/me"))?.user?.id;
+
+      const data = await apiFetch("/matches", {
+        method: "POST",
+        body: {
+          requestId: getRequestId(reqData, id),
+          helperId,
+          request_id: getRequestId(reqData, id),
+          helper_id: helperId,
+        },
+      });
+
+      const matchId = data?.match?.id || data?.matchId || data?.match_id || data?.id;
+      if (matchId) {
+        router.push(`/chat/${matchId}`);
+        return;
       }
 
-      const matchId = extractMatchId(data);
-      const mObj = data?.match || data?.item || data;
-
-      if (mObj) setMatch(mObj);
-      setMsg("Richiesta accettata ✅ Ora potete chattare.");
-
-      if (matchId) router.push(`/chat/${matchId}`);
-    } catch (err) {
-      setMsg(err?.message || "Errore accettazione.");
-    }
-  }
-
-  const requesterId =
-    match?.requester_id ?? match?.userId ?? match?.requesterId ?? match?.user_id ?? null;
-
-  const isRequester = user && requesterId && normId(user.id) === normId(requesterId);
-
-  async function setPrice() {
-    setMsg("");
-    try {
-      const cents = eurToCents(priceEUR);
-      const data = await apiFetch(`/matches/${match.id}/price`, {
-        method: "POST",
-        body: { price_cents: cents },
-      });
-      setMatch(data?.match || data?.item || data);
-      setMsg("Prezzo impostato ✅");
-    } catch (err) {
-      setMsg(err?.message || "Errore impostazione prezzo.");
-    }
-  }
-
-  async function startPay(useWallet) {
-    setMsg("");
-    try {
-      const data = await apiFetch(`/matches/${match.id}/pay`, {
-        method: "POST",
-        body: { use_wallet: !!useWallet },
-      });
-      setClientSecret(data?.clientSecret || null);
-      setMatch(data?.match || data?.item || data);
-      if (data?.amount_cents != null) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee inclusa)`);
-    } catch (err) {
-      setMsg(err?.message || "Errore avvio pagamento.");
-    }
-  }
-
-  async function release() {
-    setMsg("");
-    try {
-      const data = await apiFetch(`/matches/${match.id}/release`, { method: "POST" });
-      setMatch(data?.match || data?.item || data);
-      setMsg("Pagamento rilasciato ✅");
-    } catch (err) {
-      setMsg(err?.message || "Errore rilascio pagamento.");
+      setMsg("Richiesta accettata ✅");
+      load();
+    } catch (e) {
+      setMsg(e?.message || "Errore nell’accettazione.");
     }
   }
 
   return (
-    <Layout title="WeTrust — Dettaglio richiesta">
-      {loading && <p>Caricamento…</p>}
-      {msg && <p className="msgTop">{msg}</p>}
-
-      {!loading && !reqData && (
-        <div style={{ padding: "10px 0" }}>
-          <p>Dettagli non disponibili (richiesta non trovata).</p>
-          <p style={{ marginTop: 10 }}>
-            <Link href="/requests" className="ghost">← Torna alle richieste</Link>
-          </p>
+    <Layout title="WeTrust — Dettagli richiesta">
+      <div className="wrap">
+        <div className="topRow">
+          <Link href="/requests" className="ghost">← Torna alle richieste</Link>
+          {reqData && (
+            <button className="btn" onClick={accept} disabled={!canAccept}>
+              Accetta
+            </button>
+          )}
         </div>
-      )}
 
-      {!loading && reqData && (
-        <>
-          <div className="top">
-            <div>
-              <h1>{reqData.title}</h1>
-              <p className="desc">{reqData.description}</p>
-              <div className="meta">
-                {pickCity(reqData) ? <span>{pickCity(reqData)}</span> : null}
-                <span className="badge">{reqData.status || "open"}</span>
-              </div>
-              <p style={{ marginTop: 10 }}>
-                <Link href="/requests" className="ghost">← Torna alle richieste</Link>
-              </p>
-            </div>
+        {loading && <p>Caricamento…</p>}
+        {!loading && msg && <p className="msg">{msg}</p>}
 
-            <div className="actions">
-              {!ready ? null : !readToken() ? (
-                <Link href="/login" className="btn">Accedi</Link>
-              ) : canAccept ? (
-                <button onClick={accept} className="btn">Accetta richiesta</button>
+        {!loading && reqData && (
+          <div className="grid">
+            <div className="card">
+              <h2>{reqData.title || "Richiesta"}</h2>
+
+              {pickCity(reqData) ? (
+                <p className="line"><strong>Città:</strong> {pickCity(reqData)}</p>
               ) : null}
 
-              {match?.id && (
-                <Link href={`/chat/${match.id}`} className="btn ghost">Apri chat</Link>
-              )}
-            </div>
+              <p className="desc">{reqData.description || "—"}</p>
 
-<div className="card" style={{ marginTop: 12 }}>
-  <h3>Dettagli richiesta</h3>
-  <p className="line"><strong>ID:</strong> {reqData.id || reqData._id || id}</p>
-  <p className="line"><strong>Stato:</strong> {reqData.status || "open"}</p>
-  {pickCity(reqData) ? <span>{pickCity(reqData)}</span> : null (
-    <p className="line"><strong>Città:</strong></p>)}
-  {reqData.createdAt || reqData.created_at ? (
-    <p className="line"><strong>Creato:</strong> {new Date(reqData.createdAt || reqData.created_at).toLocaleString()}</p>
-  ) : null}
-</div>
-
-          </div>
-
-          {match?.id && (
-            <div className="grid">
-              <div className="card">
-                <h3>Match</h3>
-                <p className="line"><strong>Status:</strong> {match.status || "—"}</p>
-                <p className="line"><strong>Prezzo:</strong> {match.price_cents ? centsToEUR(match.price_cents) : "non impostato"}</p>
-                <p className="line"><strong>Fee WeTrust:</strong> {match.fee_cents ? centsToEUR(match.fee_cents) : "—"}</p>
-                <p className="hint">Il denaro viene bloccato e rilasciato solo con conferma del richiedente.</p>
-
-                {isRequester && (
-                  <>
-                    <div className="row">
-                      <input
-                        value={priceEUR}
-                        onChange={(e) => setPriceEUR(e.target.value)}
-                        placeholder="Prezzo in € (es. 25)"
-                      />
-                      <button className="btn" onClick={setPrice}>Imposta prezzo</button>
-                    </div>
-
-                    <div className="row">
-                      <button className="btn" onClick={() => startPay(false)}>Paga (carta)</button>
-                      <button className="btn ghost" onClick={() => startPay(true)}>Paga usando voucher</button>
-                    </div>
-
-                    <div className="row">
-                      <button className="btn danger" onClick={release}>Conferma & rilascia pagamento</button>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {clientSecret && stripePromise ? (
-                <Elements stripe={stripePromise} options={{ clientSecret }}>
-                  <PayBox onPaid={() => load()} />
-                </Elements>
-              ) : (
-                <div className="card">
-                  <h3>Pagamento</h3>
-                  <p className="hint">
-                    Per il checkout Stripe serve impostare <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code>.
+              <div style={{ marginTop: 12 }}>
+                <h3>Dettagli richiesta</h3>
+                <p className="line"><strong>ID:</strong> {reqData.id || reqData._id || id}</p>
+                <p className="line"><strong>Stato:</strong> {reqData.status || "open"}</p>
+                {pickCity(reqData) ? (
+                  <p className="line"><strong>Città:</strong> {pickCity(reqData)}</p>
+                ) : null}
+                {reqData.createdAt || reqData.created_at ? (
+                  <p className="line">
+                    <strong>Creato:</strong>{" "}
+                    {new Date(reqData.createdAt || reqData.created_at).toLocaleString()}
                   </p>
-                </div>
-              )}
+                ) : null}
+              </div>
             </div>
-          )}
 
-          <style jsx>{`
-            .msgTop { font-size: 13px; margin: 6px 0 10px; }
-            .top {
-              display:flex;
-              gap: 16px;
-              justify-content: space-between;
-              align-items: flex-start;
-              flex-wrap: wrap;
-            }
-            h1 { font-size: 26px; margin: 6px 0; }
-            .desc { color: #d1d5db; margin: 0 0 10px; max-width: 760px; }
-            .meta { display:flex; gap: 10px; font-size: 12px; color:#cbd5f5; align-items:center; }
-            .badge { padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(148,163,184,0.7); }
-            .actions { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-            .btn {
-              border-radius: 999px;
-              border: none;
-              padding: 8px 18px;
-              font-size: 14px;
-              font-weight: 800;
-              cursor: pointer;
-              background: linear-gradient(135deg, #00b4ff, #00e0a0);
-              color: #020617;
-              text-decoration: none;
-              display: inline-block;
-            }
-            .ghost {
-              background: transparent;
-              border: 1px solid rgba(148,163,184,0.6);
-              color: #ffffff;
-            }
-            .danger {
-              background: linear-gradient(135deg, #00e0a0, #00b4ff);
-            }
-            .grid { display:grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; }
-            @media(min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
-            .card {
-              border-radius: 18px;
-              background: rgba(15, 23, 42, 0.95);
-              border: 1px solid rgba(148, 163, 184, 0.4);
-              padding: 14px 16px;
-            }
-            .line { margin: 4px 0; }
-            .hint { font-size: 13px; opacity: 0.9; }
-            .row { display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-            input {
-              flex: 1;
-              min-width: 180px;
-              border-radius: 10px;
-              border: 1px solid rgba(148, 163, 184, 0.7);
-              background: rgba(15, 23, 42, 0.9);
-              color: #e5e7eb;
-              padding: 10px 12px;
-              font-size: 14px;
-            }
-            code { background: rgba(2,6,23,0.6); padding: 2px 6px; border-radius: 8px; }
-          `}</style>
-        </>
-      )}
+            {match?.id && stripePromise && (
+              <div className="card">
+                <h2>Pagamento</h2>
+                <Elements stripe={stripePromise} options={{ clientSecret: match.clientSecret }}>
+                  <PayBox match={match} request={reqData} onPaid={load} />
+                </Elements>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <style jsx>{`
+        .wrap { max-width: 900px; margin: 0 auto; padding: 16px 0; }
+        .topRow { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+        @media (min-width: 900px) { .grid { grid-template-columns: 1.2fr 0.8fr; } }
+
+        .card {
+          border-radius: 18px;
+          background: rgba(15, 23, 42, 0.95);
+          border: 1px solid rgba(148, 163, 184, 0.35);
+          padding: 14px 16px;
+        }
+        h2 { margin: 0 0 8px; }
+        h3 { margin: 8px 0 6px; }
+        .desc { margin-top: 10px; opacity: 0.92; }
+        .line { margin: 6px 0; opacity: 0.95; font-size: 14px; }
+        .msg { margin: 10px 0; }
+
+        .btn {
+          border-radius: 999px;
+          border: none;
+          padding: 10px 16px;
+          font-weight: 900;
+          cursor: pointer;
+          background: linear-gradient(135deg, #00b4ff, #00e0a0);
+          color: #020617;
+        }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .ghost {
+          border-radius: 999px;
+          padding: 9px 14px;
+          font-weight: 900;
+          background: transparent;
+          border: 1px solid rgba(148, 163, 184, 0.6);
+          color: #ffffff;
+          cursor: pointer;
+          text-decoration: none;
+          display: inline-block;
+        }
+      `}</style>
     </Layout>
   );
 }
