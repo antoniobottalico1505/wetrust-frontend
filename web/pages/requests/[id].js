@@ -38,6 +38,38 @@ function pickCity(o) {
   );
 }
 
+async function tryFetchMe() {
+  try {
+    const a = await apiFetch("/me");
+    return a?.user || a?.me || a?.item || a?.data || a;
+  } catch {
+    try {
+      const b = await apiFetch("/users/me");
+      return b?.user || b?.me || b?.item || b?.data || b;
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function tryFetchRequest(id) {
+  try {
+    return await apiFetch(`/requests/${id}`);
+  } catch (e) {
+    const m = String(e?.message || "").toLowerCase();
+    if (m.includes("not found") || m.includes("404")) {
+      // fallback comuni
+      try {
+        return await apiFetch(`/request/${id}`);
+      } catch {}
+      try {
+        return await apiFetch(`/requests?id=${encodeURIComponent(id)}`);
+      } catch {}
+    }
+    throw e;
+  }
+}
+
 function PayBox({ onPaid }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -74,7 +106,9 @@ function PayBox({ onPaid }) {
       </p>
       <form onSubmit={pay}>
         <PaymentElement />
-        <button disabled={loading || !stripe}>{loading ? "Confermo…" : "Conferma pagamento"}</button>
+        <button disabled={loading || !stripe}>
+          {loading ? "Confermo…" : "Conferma pagamento"}
+        </button>
       </form>
       {msg && <p className="msg">{msg}</p>}
 
@@ -116,14 +150,20 @@ export default function RequestDetailPage() {
   const { id } = router.query;
 
   const auth = useContext(AuthContext) || {};
-  const user = auth.user ?? auth[0] ?? null;
+  const ctxUser = auth.user ?? auth[0] ?? null;
 
+  const [me, setMe] = useState(ctxUser);
   const [reqData, setReqData] = useState(null);
   const [match, setMatch] = useState(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
   const [priceEUR, setPriceEUR] = useState("");
   const [clientSecret, setClientSecret] = useState(null);
+
+  useEffect(() => {
+    if (ctxUser?.id) setMe(ctxUser);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctxUser?.id]);
 
   const stripePromise = useMemo(() => {
     const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
@@ -132,21 +172,33 @@ export default function RequestDetailPage() {
   }, []);
 
   const ownerId =
-    reqData?.user_id ??
-    reqData?.userId ??
-    reqData?.user?.id ??
-    reqData?.requester_id ??
-    null;
+    reqData?.user_id ?? reqData?.userId ?? reqData?.user?.id ?? reqData?.requester_id ?? null;
 
   const canAccept = useMemo(() => {
     const st = String(reqData?.status || "").toLowerCase();
     const open = !st || st === "open" || st === "opened" || st === "pending";
-    return !!readToken() && !!user && open && !match && normId(user.id) !== normId(ownerId);
-  }, [user, reqData, match, ownerId]);
+    const meId = me?.id ? normId(me.id) : "";
+    return !!readToken() && open && !match && !!meId && meId !== normId(ownerId);
+  }, [me, reqData, match, ownerId]);
 
   function extractMatchId(data) {
     const m = data?.match || data?.item || data;
-    return m?.id || data?.matchId || data?.match_id || m?.matchId || m?.match_id || null;
+    return (
+      m?.id ||
+      data?.matchId ||
+      data?.match_id ||
+      m?.matchId ||
+      m?.match_id ||
+      null
+    );
+  }
+
+  async function ensureMe() {
+    if (me?.id) return me;
+    if (!readToken()) return null;
+    const u = await tryFetchMe();
+    if (u?.id) setMe(u);
+    return u;
   }
 
   async function load() {
@@ -156,7 +208,7 @@ export default function RequestDetailPage() {
     try {
       setLoading(true);
 
-      const data = await apiFetch(`/requests/${id}`);
+      const data = await tryFetchRequest(id);
       const request = data?.request || data?.item || data?.data || data;
       setReqData(request || null);
 
@@ -191,7 +243,7 @@ export default function RequestDetailPage() {
   useEffect(() => {
     if (id) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user?.id]);
+  }, [id, me?.id]);
 
   async function accept() {
     setMsg("");
@@ -201,17 +253,33 @@ export default function RequestDetailPage() {
       return;
     }
 
+    const u = await ensureMe();
+    const helperId = u?.id || me?.id;
+
+    if (!helperId) {
+      setMsg("helperId non disponibile: fai login e riprova.");
+      return;
+    }
+
     try {
       let data;
       try {
         data = await apiFetch("/matches", {
           method: "POST",
-          body: { requestId: id, request_id: id },
+          body: {
+            requestId: id,
+            request_id: id,
+            helperId,
+            helper_id: helperId,
+          },
         });
       } catch (e) {
         const m = String(e?.message || "").toLowerCase();
         if (m.includes("not found") || m.includes("404")) {
-          data = await apiFetch(`/requests/${id}/accept`, { method: "POST" });
+          data = await apiFetch(`/requests/${id}/accept`, {
+            method: "POST",
+            body: { helperId, helper_id: helperId },
+          });
         } else {
           throw e;
         }
@@ -219,9 +287,10 @@ export default function RequestDetailPage() {
 
       const matchId = extractMatchId(data);
       const mObj = data?.match || data?.item || data;
-      if (mObj) setMatch(mObj);
 
+      if (mObj) setMatch(mObj);
       setMsg("Richiesta accettata ✅ Ora potete chattare.");
+
       if (matchId) router.push(`/chat/${matchId}`);
     } catch (err) {
       setMsg(err?.message || "Errore accettazione.");
@@ -230,7 +299,7 @@ export default function RequestDetailPage() {
 
   const requesterId =
     match?.requester_id ?? match?.userId ?? match?.requesterId ?? match?.user_id ?? null;
-  const isRequester = user && requesterId && normId(user.id) === normId(requesterId);
+  const isRequester = me && requesterId && normId(me.id) === normId(requesterId);
 
   async function setPrice() {
     setMsg("");
@@ -279,6 +348,8 @@ export default function RequestDetailPage() {
       {loading && <p>Caricamento…</p>}
       {msg && <p className="msgTop">{msg}</p>}
 
+      {!loading && !reqData && <p>Richiesta non trovata.</p>}
+
       {!loading && reqData && (
         <>
           <div className="top">
@@ -286,7 +357,7 @@ export default function RequestDetailPage() {
               <h1>{reqData.title}</h1>
               <p className="desc">{reqData.description}</p>
               <div className="meta">
-                {pickCity(reqData) && <span>{pickCity(reqData)}</span>}
+                {pickCity(reqData) ? <span>{pickCity(reqData)}</span> : null}
                 <span className="badge">{reqData.status || "open"}</span>
               </div>
               <p style={{ marginTop: 10 }}>
@@ -481,11 +552,6 @@ export default function RequestDetailPage() {
               color: #e5e7eb;
               padding: 10px 12px;
               font-size: 14px;
-            }
-            code {
-              background: rgba(2, 6, 23, 0.6);
-              padding: 2px 6px;
-              border-radius: 8px;
             }
           `}</style>
         </>

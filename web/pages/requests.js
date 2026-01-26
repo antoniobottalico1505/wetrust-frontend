@@ -17,7 +17,7 @@ function readToken() {
   }
 }
 
-function getId(x) {
+function normId(x) {
   return x == null ? "" : String(x);
 }
 
@@ -25,6 +25,18 @@ function clip(s, n = 180) {
   const t = String(s || "").trim();
   if (!t) return "";
   return t.length > n ? `${t.slice(0, n).trim()}…` : t;
+}
+
+function pickRequestId(r) {
+  return (
+    r?.id ||
+    r?._id ||
+    r?.requestId ||
+    r?.request_id ||
+    r?.requestID ||
+    r?.uuid ||
+    null
+  );
 }
 
 function pickCity(r) {
@@ -43,16 +55,34 @@ function pickDesc(r) {
   return r?.description || r?.desc || r?.text || r?.details || "";
 }
 
+async function tryFetchMe() {
+  try {
+    const a = await apiFetch("/me");
+    return a?.user || a?.me || a?.item || a?.data || a;
+  } catch {
+    try {
+      const b = await apiFetch("/users/me");
+      return b?.user || b?.me || b?.item || b?.data || b;
+    } catch {
+      return null;
+    }
+  }
+}
+
 export default function RequestsPage() {
   const router = useRouter();
 
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
-  const [isLogged, setIsLogged] = useState(false);
+  const [me, setMe] = useState(null);
 
   useEffect(() => {
-    setIsLogged(!!readToken());
+    if (!readToken()) return;
+    (async () => {
+      const u = await tryFetchMe();
+      if (u?.id) setMe(u);
+    })();
   }, []);
 
   async function load() {
@@ -96,31 +126,57 @@ export default function RequestsPage() {
   async function accept(r) {
     setMsg("");
 
-    if (!readToken()) {
+    const token = readToken();
+    if (!token) {
       router.push("/login");
       return;
     }
 
+    const requestId = pickRequestId(r);
+    if (!requestId) {
+      setMsg("ID richiesta mancante (campo id/_id/requestId)." );
+      return;
+    }
+
+    let helperId = me?.id;
+    if (!helperId) {
+      const u = await tryFetchMe();
+      if (u?.id) {
+        setMe(u);
+        helperId = u.id;
+      }
+    }
+
+    if (!helperId) {
+      setMsg("helperId non disponibile: fai login e riprova.");
+      return;
+    }
+
     try {
-      // 1) tentativo principale: POST /matches
       let data;
       try {
         data = await apiFetch("/matches", {
           method: "POST",
-          body: { requestId: r.id, request_id: r.id },
+          body: {
+            requestId,
+            request_id: requestId,
+            helperId,
+            helper_id: helperId,
+          },
         });
       } catch (e) {
         const m = String(e?.message || "").toLowerCase();
-        // 2) fallback: alcuni backend usano /requests/:id/accept
         if (m.includes("not found") || m.includes("404")) {
-          data = await apiFetch(`/requests/${r.id}/accept`, { method: "POST" });
+          data = await apiFetch(`/requests/${requestId}/accept`, {
+            method: "POST",
+            body: { helperId, helper_id: helperId },
+          });
         } else {
           throw e;
         }
       }
 
       const matchId = extractMatchId(data);
-
       if (matchId) {
         router.push(`/chat/${matchId}`);
         return;
@@ -161,35 +217,36 @@ export default function RequestsPage() {
       )}
 
       <div className="list">
-        {requests.map((r) => (
-          <article key={getId(r.id)} className="card">
-            <div className="cardTop">
-              <h2>{r.title || "Richiesta"}</h2>
-              <span className={`badge ${String(r.status || "open").toLowerCase()}`}>
-                {r.status || "open"}
-              </span>
-            </div>
+        {requests.map((r) => {
+          const id = pickRequestId(r);
+          return (
+            <article key={normId(id) || normId(r?.title) || Math.random()} className="card">
+              <div className="cardTop">
+                <h2>{r.title || "Richiesta"}</h2>
+                <span className={`badge ${String(r.status || "open").toLowerCase()}`}>
+                  {r.status || "open"}
+                </span>
+              </div>
 
-            {/* ✅ città sempre visibile se presente (anche se arriva nested) */}
-            {pickCity(r) ? <p className="city">{pickCity(r)}</p> : null}
-            <p className="desc">{clip(pickDesc(r)) || "Apri i dettagli per vedere la descrizione."}</p>
+              {pickCity(r) ? <p className="city">{pickCity(r)}</p> : null}
+              <p className="desc">{clip(pickDesc(r)) || "Apri i dettagli per vedere la descrizione."}</p>
 
-            <div className="row">
-              <Link className="ghost" href={`/requests/${r.id}`}>
-                Dettagli
-              </Link>
+              <div className="row">
+                {id ? (
+                  <Link className="ghost" href={`/requests/${id}`}>
+                    Dettagli
+                  </Link>
+                ) : (
+                  <span className="ghost disabled">Dettagli</span>
+                )}
 
-              <button
-                className="btn"
-                onClick={() => accept(r)}
-                disabled={!canAccept(r)}
-                title={!isLogged ? "Devi essere loggato" : ""}
-              >
-                Accetta
-              </button>
-            </div>
-          </article>
-        ))}
+                <button className="btn" onClick={() => accept(r)} disabled={!canAccept(r) || !id}>
+                  Accetta
+                </button>
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       <style jsx>{`
@@ -290,6 +347,10 @@ export default function RequestsPage() {
           cursor: pointer;
           text-decoration: none;
           display: inline-block;
+        }
+        .ghost.disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
       `}</style>
     </Layout>
