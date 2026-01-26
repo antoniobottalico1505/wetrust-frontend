@@ -1,183 +1,214 @@
-import { useContext, useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
-import { AuthContext } from "./_app";
+import Link from "next/link";
+import { useRouter } from "next/router";
+
+function readToken() {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      localStorage.getItem("wetrust_token") ||
+      localStorage.getItem("token") ||
+      sessionStorage.getItem("token")
+    );
+  } catch {
+    return null;
+  }
+}
 
 export default function RequestsPage() {
-  const { user, ready } = useContext(AuthContext);
+  const router = useRouter();
 
   const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
+  const logged = useMemo(() => !!readToken(), []);
+
   async function load() {
+    setMsg("");
     try {
       setLoading(true);
-      setMsg("");
+
+      // ✅ niente auth:false: se hai token apiFetch lo manda, se non hai token ti dirà Token mancante
       const data = await apiFetch("/requests");
-      setRequests(data?.requests || data?.items || []);
+
+      const list = data?.requests || data?.items || data?.list || [];
+      setRequests(Array.isArray(list) ? list : []);
     } catch (err) {
+      setRequests([]);
       setMsg(err?.message || "Errore nel caricare le richieste.");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    if (!ready) return;
-    if (!user) return;
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, user]);
-
   function canAccept(r) {
-    const ownerId = r.user_id ?? r.userId ?? r.userID;
-    if (user?.id && ownerId && String(ownerId) === String(user.id)) return false;
-    return true;
+    const st = String(r?.status || "").toLowerCase();
+    if (!st) return true; // se non c’è status, proviamo comunque
+    return st === "open" || st === "opened" || st === "pending";
   }
 
-  async function accept(requestId) {
+  async function accept(r) {
     setMsg("");
-    try {
-      if (!user?.id) throw new Error("Devi essere loggato per accettare.");
+    const token = readToken();
+    if (!token) {
+      router.push("/login");
+      return;
+    }
 
-      // ✅ backend: crea match con POST /matches
+    try {
+      // ✅ l’API non ha /requests/:id/accept → creiamo un match
       const data = await apiFetch("/matches", {
         method: "POST",
-        body: { requestId, helperId: user.id },
+        body: {
+          requestId: r.id,
+          request_id: r.id, // compat
+        },
       });
 
-      const match = data?.match || null;
+      const match = data?.match || data?.item || data;
+      const matchId = match?.id;
 
-      if (match?.id) {
-        window.location.href = `/chat/${match.id}`;
+      if (matchId) {
+        router.push(`/chat/${matchId}`);
         return;
       }
 
-      setMsg("Richiesta accettata ✅");
       await load();
-    } catch (err) {
-      setMsg(err?.message || "Errore durante l’accettazione.");
+      setMsg("Richiesta accettata ✅");
+    } catch (e) {
+      setMsg(e?.message || "Errore nell’accettazione.");
     }
   }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Layout title="WeTrust — Richieste">
       <h1>Richieste</h1>
+      <p className="subtitle">
+        Qui compaiono le richieste pubblicate. Per accettare e chattare devi essere loggato.
+      </p>
 
-      {!ready && <p>Caricamento…</p>}
+      {loading && <p>Caricamento…</p>}
 
-      {ready && !user && (
-        <div className="card">
-          <p>Per vedere/accettare le richieste devi essere loggato.</p>
-          <Link className="btn" href="/login">Vai al login</Link>
-
-          <style jsx>{`
-            .card {
-              margin-top: 12px;
-              max-width: 520px;
-              border-radius: 18px;
-              background: rgba(15, 23, 42, 0.95);
-              border: 1px solid rgba(148, 163, 184, 0.35);
-              padding: 14px 16px;
-            }
-            .btn {
-              display: inline-block;
-              margin-top: 10px;
-              border-radius: 999px;
-              border: none;
-              padding: 10px 16px;
-              font-weight: 900;
-              cursor: pointer;
-              background: linear-gradient(135deg, #00b4ff, #00e0a0);
-              color: #020617;
-              text-decoration: none;
-            }
-          `}</style>
-        </div>
+      {!loading && msg && (
+        <p className="msg">
+          {msg}{" "}
+          {String(msg).toLowerCase().includes("token") && (
+            <>
+              <Link href="/login" className="lnk">Vai al login</Link>.
+            </>
+          )}
+        </p>
       )}
 
-      {ready && user && (
-        <>
-          {msg && <p className="msgTop">{msg}</p>}
-          {loading && <p>Caricamento…</p>}
-
-          {!loading && requests.length === 0 && <p>Nessuna richiesta per ora.</p>}
-
-          <div className="list">
-            {requests.map((r) => (
-              <article key={r.id} className="card2">
-                <h2>{r.title || "Richiesta"}</h2>
-
-                {/* ✅ città visibile se presente */}
-                {r.city ? <p className="city">{r.city}</p> : null}
-
-                <p className="desc">{r.description}</p>
-
-                <div className="row">
-                  <button
-                    className="btn2"
-                    onClick={() => accept(r.id)}
-                    disabled={!canAccept(r)}
-                    title={!canAccept(r) ? "Non puoi accettare la tua richiesta" : ""}
-                  >
-                    Accetta
-                  </button>
-
-                  {/* ✅ pagina [id] funzionante */}
-                  <Link className="ghost" href={`/requests/${r.id}`}>
-                    Dettagli
-                  </Link>
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <style jsx>{`
-            .msgTop { opacity: 0.95; margin: 10px 0; }
-
-            .list {
-              display: grid;
-              gap: 12px;
-              grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            }
-            .card2 {
-              border-radius: 18px;
-              background: rgba(15, 23, 42, 0.95);
-              border: 1px solid rgba(148, 163, 184, 0.35);
-              padding: 14px 16px;
-            }
-            h2 { margin: 0 0 6px; font-size: 16px; }
-            .city { margin: 0 0 8px; font-size: 12px; opacity: 0.85; }
-            .desc { margin: 0; opacity: 0.92; font-size: 14px; }
-            .row { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-
-            .btn2 {
-              border-radius: 999px;
-              border: none;
-              padding: 10px 16px;
-              font-weight: 900;
-              cursor: pointer;
-              background: linear-gradient(135deg, #00b4ff, #00e0a0);
-              color: #020617;
-            }
-            .btn2:disabled { opacity: 0.6; cursor: not-allowed; }
-
-            .ghost {
-              border-radius: 999px;
-              padding: 9px 14px;
-              font-weight: 900;
-              background: transparent;
-              border: 1px solid rgba(148, 163, 184, 0.6);
-              color: #ffffff;
-              cursor: pointer;
-              text-decoration: none;
-              display: inline-block;
-            }
-          `}</style>
-        </>
+      {!loading && !msg && requests.length === 0 && (
+        <p>Ancora nessuna richiesta. Creane una dalla home.</p>
       )}
+
+      <div className="list">
+        {requests.map((r) => (
+          <article key={r.id} className="card">
+            <div className="cardTop">
+              <h2>{r.title || "Richiesta"}</h2>
+              <span className={`badge ${String(r.status || "open").toLowerCase()}`}>
+                {r.status || "open"}
+              </span>
+            </div>
+
+            {r.city ? <p className="city">{r.city}</p> : null}
+            <p className="desc">{r.description}</p>
+
+            <div className="row">
+              <Link className="ghost" href={`/requests/${r.id}`}>
+                Dettagli
+              </Link>
+
+              <button
+                className="btn"
+                onClick={() => accept(r)}
+                disabled={!canAccept(r)}
+                title={!logged ? "Devi essere loggato" : ""}
+              >
+                Accetta
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <style jsx>{`
+        .subtitle { font-size: 14px; opacity: .92; margin-bottom: 14px; }
+        .msg { opacity: .95; margin: 10px 0; }
+        .lnk { text-decoration: underline; color: #a5f3fc; font-weight: 800; }
+
+        .list {
+          display: grid;
+          gap: 12px;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+
+        .card {
+          border-radius: 18px;
+          background: rgba(15, 23, 42, 0.95);
+          border: 1px solid rgba(148, 163, 184, 0.35);
+          padding: 14px 16px;
+          transition: transform 0.12s ease, border-color 0.12s ease;
+        }
+        .card:hover { transform: translateY(-2px); border-color: rgba(0, 180, 255, 0.5); }
+
+        .cardTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          align-items: flex-start;
+        }
+
+        h2 { font-size: 16px; margin: 0; line-height: 1.2; }
+
+        .city { margin: 8px 0 0; font-size: 12px; opacity: 0.85; }
+        .desc { font-size: 14px; margin: 10px 0 12px; opacity: 0.92; }
+
+        .badge {
+          padding: 4px 10px;
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.5);
+          font-size: 12px;
+          opacity: 0.95;
+          text-transform: lowercase;
+        }
+
+        .row { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+        .btn {
+          border-radius: 999px;
+          border: none;
+          padding: 10px 16px;
+          font-weight: 900;
+          cursor: pointer;
+          background: linear-gradient(135deg, #00b4ff, #00e0a0);
+          color: #020617;
+        }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .ghost {
+          border-radius: 999px;
+          padding: 9px 14px;
+          font-weight: 900;
+          background: transparent;
+          border: 1px solid rgba(148, 163, 184, 0.6);
+          color: #ffffff;
+          cursor: pointer;
+          text-decoration: none;
+          display: inline-block;
+        }
+      `}</style>
     </Layout>
   );
 }

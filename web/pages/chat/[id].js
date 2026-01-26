@@ -49,8 +49,10 @@ export default function ChatRoom() {
 
     try {
       setNoAuth(false);
+
       const data = await apiAuthFetch(`/matches/${id}/messages`);
-      setList(data.messages || []);
+      const msgs = data?.messages || data?.items || data?.list || [];
+      setList(Array.isArray(msgs) ? msgs : []);
       setErr("");
     } catch (e) {
       setErr(e?.message || "Errore nel caricamento messaggi");
@@ -59,11 +61,14 @@ export default function ChatRoom() {
 
   useEffect(() => {
     if (!id) return;
+
     load();
+
     const t = setInterval(() => {
       if (!getToken()) return;
       load();
     }, 2500);
+
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -80,6 +85,7 @@ export default function ChatRoom() {
     }
 
     try {
+      // ✅ NON JSON.stringify: apiFetch serializza lui e mette Content-Type
       await apiAuthFetch(`/matches/${id}/messages`, {
         method: "POST",
         body: { text: text.trim() },
@@ -102,10 +108,7 @@ export default function ChatRoom() {
           {err}{" "}
           {noAuth && (
             <>
-              <Link href="/login" className="lnk">
-                Vai al login
-              </Link>
-              .
+              <Link href="/login" className="lnk">Vai al login</Link>.
             </>
           )}
         </p>
@@ -115,8 +118,10 @@ export default function ChatRoom() {
         <div className="box">
           {empty && <p className="muted">Nessun messaggio ancora. Scrivi tu per primo.</p>}
           {list.map((m) => (
-            <div key={m.id} className="msg">
-              <div className="meta">{new Date(m.createdAt).toLocaleString()}</div>
+            <div key={m.id || `${m.createdAt}-${m.text}`} className="msg">
+              <div className="meta">
+                {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}
+              </div>
               <div className="txt">{m.text}</div>
             </div>
           ))}
@@ -175,6 +180,7 @@ export default function ChatRoom() {
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
+        button:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
       `}</style>
     </Layout>
   );
