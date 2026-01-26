@@ -9,6 +9,7 @@ export default function Home() {
   const user = auth.user ?? auth[0] ?? null;
   const ready = auth.ready ?? auth[2] ?? false;
 
+  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [city, setCity] = useState("");
   const [loading, setLoading] = useState(false);
@@ -17,6 +18,11 @@ export default function Home() {
   async function handleINeed(e) {
     e.preventDefault();
     setFeedback("");
+
+    if (!title.trim()) {
+      setFeedback("Inserisci un titolo.");
+      return;
+    }
 
     if (!description.trim()) {
       setFeedback("Scrivi almeno una frase sul tuo bisogno.");
@@ -33,9 +39,10 @@ export default function Home() {
 
       await apiFetch("/requests", {
         method: "POST",
-        body: JSON.stringify({ description, city }),
+        body: JSON.stringify({ title, description, city }),
       });
 
+      setTitle("");
       setDescription("");
       setCity("");
       setFeedback("Richiesta inviata ✅ La trovi nella pagina Richieste.");
@@ -66,7 +73,8 @@ export default function Home() {
 
             {!ready ? null : user ? (
               <p className="pill">
-                Sei dentro come: <strong>{user.phone || user.email || user.name || "utente"}</strong>
+                Sei dentro come:{" "}
+                <strong>{user.phone || user.email || user.name || "utente"}</strong>
               </p>
             ) : (
               <p className="pill">
@@ -82,6 +90,15 @@ export default function Home() {
               <label className="need-label">
                 Scrivi qui il tuo bisogno (pulsante <strong>I need</strong>):
               </label>
+
+              {/* ✅ TITOLO (obbligatorio) */}
+              <input
+                className="need-title"
+                placeholder="Titolo (obbligatorio) — es. Accompagnare mia madre dal medico"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+
               <textarea
                 className="need-textarea"
                 placeholder="Es. Ho bisogno di qualcuno che accompagni mia madre dal medico domani mattina…"
@@ -176,6 +193,19 @@ export default function Home() {
 
         .need-form { margin-top: 6px; }
         .need-label { font-size: 13px; margin-bottom: 6px; display:block; }
+
+        /* ✅ stile identico agli input già presenti */
+        .need-title {
+          width: 100%;
+          margin-bottom: 8px;
+          border-radius: 12px;
+          border: 1px solid rgba(148, 163, 184, 0.7);
+          background: rgba(15, 23, 42, 0.9);
+          color: #e5e7eb;
+          padding: 10px 12px;
+          font-size: 14px;
+        }
+
         .need-textarea {
           width:100%;
           min-height: 90px;
