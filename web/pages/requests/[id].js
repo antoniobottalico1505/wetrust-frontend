@@ -401,9 +401,8 @@ if (ownerId && user?.id && String(ownerId) === String(user.id)) {
   <h3>Dettagli richiesta</h3>
   <p className="line"><strong>ID:</strong> {reqData.id || reqData._id || id}</p>
   <p className="line"><strong>Stato:</strong> {reqData.status || "open"}</p>
-  {pickCity(reqData) ? <span>{pickCity(reqData)}</span>(
-    <p className="line"><strong>Città:</strong></p>
-  ) : null}
+  {pickCity(reqData) ? <span>{pickCity(reqData)}</span> : null (
+    <p className="line"><strong>Città:</strong></p>)}
   {reqData.createdAt || reqData.created_at ? (
     <p className="line"><strong>Creato:</strong> {new Date(reqData.createdAt || reqData.created_at).toLocaleString()}</p>
   ) : null}

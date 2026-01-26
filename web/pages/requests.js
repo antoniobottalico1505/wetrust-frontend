@@ -22,10 +22,6 @@ function normId(x) {
   return x == null ? "" : String(x);
 }
 
-function getRequestId(r) {
-  return normId(r?.id || r?._id || r?.requestId || r?.request_id);
-}
-
 function cleanCity(city) {
   return typeof city === "string" ? city.trim() : "";
 }
