@@ -17,15 +17,49 @@ function getToken() {
   }
 }
 
-async function apiAuthFetch(path, options = {}) {
-  const token = getToken();
-  const headers = { ...(options.headers || {}) };
+function pickCreatedAt(m) {
+  return m?.createdAt || m?.created_at || m?.ts || m?.time || null;
+}
 
-  if (token && !headers.Authorization) {
-    headers.Authorization = `Bearer ${token}`;
+async function tryFetchMessages(matchId) {
+  // endpoint principale
+  try {
+    return await apiFetch(`/matches/${matchId}/messages`);
+  } catch (e) {
+    const msg = String(e?.message || "").toLowerCase();
+    if (msg.includes("not found") || msg.includes("404")) {
+      // fallback possibili
+      try {
+        return await apiFetch(`/chat/${matchId}/messages`);
+      } catch {}
+      return await apiFetch(`/chats/${matchId}/messages`);
+    }
+    throw e;
   }
+}
 
-  return apiFetch(path, { ...options, headers });
+async function trySendMessage(matchId, text) {
+  try {
+    return await apiFetch(`/matches/${matchId}/messages`, {
+      method: "POST",
+      body: { text },
+    });
+  } catch (e) {
+    const msg = String(e?.message || "").toLowerCase();
+    if (msg.includes("not found") || msg.includes("404")) {
+      try {
+        return await apiFetch(`/chat/${matchId}/messages`, {
+          method: "POST",
+          body: { text },
+        });
+      } catch {}
+      return await apiFetch(`/chats/${matchId}/messages`, {
+        method: "POST",
+        body: { text },
+      });
+    }
+    throw e;
+  }
 }
 
 export default function ChatRoom() {
@@ -40,8 +74,7 @@ export default function ChatRoom() {
   async function load() {
     if (!id) return;
 
-    const token = getToken();
-    if (!token) {
+    if (!getToken()) {
       setNoAuth(true);
       setErr("Devi accedere per usare la chat (token mancante).");
       return;
@@ -49,8 +82,7 @@ export default function ChatRoom() {
 
     try {
       setNoAuth(false);
-
-      const data = await apiAuthFetch(`/matches/${id}/messages`);
+      const data = await tryFetchMessages(id);
       const msgs = data?.messages || data?.items || data?.list || [];
       setList(Array.isArray(msgs) ? msgs : []);
       setErr("");
@@ -75,21 +107,17 @@ export default function ChatRoom() {
 
   async function send(e) {
     e.preventDefault();
-    if (!text.trim()) return;
+    const v = text.trim();
+    if (!v) return;
 
-    const token = getToken();
-    if (!token) {
+    if (!getToken()) {
       setNoAuth(true);
       setErr("Devi accedere per inviare messaggi (token mancante).");
       return;
     }
 
     try {
-      // ✅ NON JSON.stringify: apiFetch serializza lui e mette Content-Type
-      await apiAuthFetch(`/matches/${id}/messages`, {
-        method: "POST",
-        body: { text: text.trim() },
-      });
+      await trySendMessage(id, v);
       setText("");
       await load();
     } catch (e2) {
@@ -117,10 +145,10 @@ export default function ChatRoom() {
       <div className="wrap">
         <div className="box">
           {empty && <p className="muted">Nessun messaggio ancora. Scrivi tu per primo.</p>}
-          {list.map((m) => (
-            <div key={m.id || `${m.createdAt}-${m.text}`} className="msg">
+          {list.map((m, i) => (
+            <div key={m.id || `${pickCreatedAt(m) || "t"}-${i}`} className="msg">
               <div className="meta">
-                {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}
+                {pickCreatedAt(m) ? new Date(pickCreatedAt(m)).toLocaleString() : ""}
               </div>
               <div className="txt">{m.text}</div>
             </div>
@@ -136,11 +164,16 @@ export default function ChatRoom() {
           />
           <button disabled={noAuth}>Invia</button>
         </form>
+
+        <p style={{ marginTop: 10 }}>
+          <Link href="/chats" className="back">← Torna alle chat</Link>
+        </p>
       </div>
 
       <style jsx>{`
         .err { opacity: .95; }
         .lnk { text-decoration: underline; color: #a5f3fc; font-weight: 700; }
+        .back { text-decoration: underline; color: #a5f3fc; font-weight: 800; }
         .wrap { max-width: 820px; }
         .box {
           background: rgba(15, 23, 42, 0.95);

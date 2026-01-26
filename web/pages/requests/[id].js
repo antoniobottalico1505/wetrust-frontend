@@ -5,10 +5,26 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { AuthContext } from "../_app";
 
-// Stripe (resta com’era: se non usi stripe non si attiva)
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { centsToEUR, eurToCents } from "../../lib/money";
+
+function readToken() {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      localStorage.getItem("wetrust_token") ||
+      localStorage.getItem("token") ||
+      sessionStorage.getItem("token")
+    );
+  } catch {
+    return null;
+  }
+}
+
+function normId(x) {
+  return x == null ? "" : String(x);
+}
 
 function PayBox({ onPaid }) {
   const stripe = useStripe();
@@ -76,10 +92,6 @@ function PayBox({ onPaid }) {
   );
 }
 
-function normId(x) {
-  return x == null ? "" : String(x);
-}
-
 export default function RequestDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -110,6 +122,18 @@ export default function RequestDetailPage() {
     return !!user && open && !match && normId(user.id) !== normId(ownerId);
   }, [user, reqData, match, ownerId]);
 
+  function extractMatchId(data) {
+    const m = data?.match || data?.item || data;
+    return (
+      m?.id ||
+      data?.matchId ||
+      data?.match_id ||
+      m?.matchId ||
+      m?.match_id ||
+      null
+    );
+  }
+
   async function load() {
     if (!id) return;
     setMsg("");
@@ -121,24 +145,21 @@ export default function RequestDetailPage() {
       const request = data?.request || data?.item || data?.data || data;
       setReqData(request || null);
 
-      // 1) se l’API ti restituisce già un match
       const m0 = data?.match || data?.itemMatch || null;
       if (m0?.id) {
         setMatch(m0);
         return;
       }
 
-      // 2) altrimenti prova a recuperare match da /me/matches (se loggato)
-      if (user?.id) {
+      // se loggato, prova anche /me/matches
+      if (readToken()) {
         try {
           const mdata = await apiFetch("/me/matches");
           const list = mdata?.matches || mdata?.items || [];
           const found =
-            list.find((m) => normId(m.requestId || m.request_id) === normId(id)) ||
-            null;
+            list.find((m) => normId(m.requestId || m.request_id) === normId(id)) || null;
           setMatch(found);
         } catch {
-          // ignore
           setMatch(null);
         }
       } else {
@@ -160,25 +181,37 @@ export default function RequestDetailPage() {
 
   async function accept() {
     setMsg("");
-    if (!user) {
+
+    if (!readToken()) {
       router.push("/login");
       return;
     }
 
     try {
-      const data = await apiFetch("/matches", {
-        method: "POST",
-        body: {
-          requestId: id,
-          request_id: id,
-        },
-      });
+      // 1) POST /matches
+      let data;
+      try {
+        data = await apiFetch("/matches", {
+          method: "POST",
+          body: { requestId: id, request_id: id },
+        });
+      } catch (e) {
+        const m = String(e?.message || "").toLowerCase();
+        if (m.includes("not found") || m.includes("404")) {
+          // 2) fallback /requests/:id/accept
+          data = await apiFetch(`/requests/${id}/accept`, { method: "POST" });
+        } else {
+          throw e;
+        }
+      }
 
-      const m = data?.match || data?.item || data;
-      setMatch(m || null);
+      const matchId = extractMatchId(data);
+      const mObj = data?.match || data?.item || data;
+
+      if (mObj) setMatch(mObj);
       setMsg("Richiesta accettata ✅ Ora potete chattare.");
 
-      if (m?.id) router.push(`/chat/${m.id}`);
+      if (matchId) router.push(`/chat/${matchId}`);
     } catch (err) {
       setMsg(err?.message || "Errore accettazione.");
     }
@@ -245,10 +278,13 @@ export default function RequestDetailPage() {
                 {reqData.city && <span>{reqData.city}</span>}
                 <span className="badge">{reqData.status || "open"}</span>
               </div>
+              <p style={{ marginTop: 10 }}>
+                <Link href="/requests" className="ghost">← Torna alle richieste</Link>
+              </p>
             </div>
 
             <div className="actions">
-              {!ready ? null : !user ? (
+              {!ready ? null : !readToken() ? (
                 <Link href="/login" className="btn">Accedi</Link>
               ) : canAccept ? (
                 <button onClick={accept} className="btn">Accetta richiesta</button>

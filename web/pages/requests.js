@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import Link from "next/link";
@@ -17,23 +17,27 @@ function readToken() {
   }
 }
 
+function getId(x) {
+  return x == null ? "" : String(x);
+}
+
 export default function RequestsPage() {
   const router = useRouter();
 
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [isLogged, setIsLogged] = useState(false);
 
-  const logged = useMemo(() => !!readToken(), []);
+  useEffect(() => {
+    setIsLogged(!!readToken());
+  }, []);
 
   async function load() {
     setMsg("");
     try {
       setLoading(true);
-
-      // ✅ niente auth:false: se hai token apiFetch lo manda, se non hai token ti dirà Token mancante
       const data = await apiFetch("/requests");
-
       const list = data?.requests || data?.items || data?.list || [];
       setRequests(Array.isArray(list) ? list : []);
     } catch (err) {
@@ -44,49 +48,68 @@ export default function RequestsPage() {
     }
   }
 
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function canAccept(r) {
     const st = String(r?.status || "").toLowerCase();
-    if (!st) return true; // se non c’è status, proviamo comunque
+    if (!st) return true;
     return st === "open" || st === "opened" || st === "pending";
+  }
+
+  function extractMatchId(data) {
+    const m = data?.match || data?.item || data;
+    return (
+      m?.id ||
+      data?.matchId ||
+      data?.match_id ||
+      m?.matchId ||
+      m?.match_id ||
+      null
+    );
   }
 
   async function accept(r) {
     setMsg("");
-    const token = readToken();
-    if (!token) {
+
+    if (!readToken()) {
       router.push("/login");
       return;
     }
 
     try {
-      // ✅ l’API non ha /requests/:id/accept → creiamo un match
-      const data = await apiFetch("/matches", {
-        method: "POST",
-        body: {
-          requestId: r.id,
-          request_id: r.id, // compat
-        },
-      });
+      // 1) tentativo principale: POST /matches
+      let data;
+      try {
+        data = await apiFetch("/matches", {
+          method: "POST",
+          body: { requestId: r.id, request_id: r.id },
+        });
+      } catch (e) {
+        const m = String(e?.message || "").toLowerCase();
+        // 2) fallback: alcuni backend usano /requests/:id/accept
+        if (m.includes("not found") || m.includes("404")) {
+          data = await apiFetch(`/requests/${r.id}/accept`, { method: "POST" });
+        } else {
+          throw e;
+        }
+      }
 
-      const match = data?.match || data?.item || data;
-      const matchId = match?.id;
+      const matchId = extractMatchId(data);
 
       if (matchId) {
         router.push(`/chat/${matchId}`);
         return;
       }
 
-      await load();
       setMsg("Richiesta accettata ✅");
+      await load();
     } catch (e) {
       setMsg(e?.message || "Errore nell’accettazione.");
     }
   }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <Layout title="WeTrust — Richieste">
@@ -114,7 +137,7 @@ export default function RequestsPage() {
 
       <div className="list">
         {requests.map((r) => (
-          <article key={r.id} className="card">
+          <article key={getId(r.id)} className="card">
             <div className="cardTop">
               <h2>{r.title || "Richiesta"}</h2>
               <span className={`badge ${String(r.status || "open").toLowerCase()}`}>
@@ -134,7 +157,7 @@ export default function RequestsPage() {
                 className="btn"
                 onClick={() => accept(r)}
                 disabled={!canAccept(r)}
-                title={!logged ? "Devi essere loggato" : ""}
+                title={!isLogged ? "Devi essere loggato" : ""}
               >
                 Accetta
               </button>
