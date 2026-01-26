@@ -4,104 +4,238 @@ import Link from "next/link";
 import { apiFetch } from "../lib/api";
 import { AuthContext } from "./_app";
 
-function clip(s, n = 120) {
-  const t = String(s || "").trim();
-  if (!t) return "";
-  return t.length > n ? `${t.slice(0, n).trim()}…` : t;
+function readToken() {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      localStorage.getItem("wetrust_token") ||
+      localStorage.getItem("token") ||
+      sessionStorage.getItem("token")
+    );
+  } catch {
+    return null;
+  }
 }
 
 function normId(x) {
   return x == null ? "" : String(x);
 }
 
+function clip(s, n = 140) {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  return t.length > n ? `${t.slice(0, n).trim()}…` : t;
+}
+
+function pickTitle(o) {
+  return (
+    o?.title ||
+    o?.subject ||
+    o?.need ||
+    o?.name ||
+    o?.request_title ||
+    o?.requestTitle ||
+    ""
+  );
+}
+
+function pickDesc(o) {
+  return (
+    o?.description ||
+    o?.desc ||
+    o?.text ||
+    o?.details ||
+    o?.request_description ||
+    o?.requestDesc ||
+    ""
+  );
+}
+
+function pickCity(o) {
+  return (
+    o?.city ||
+    o?.city_name ||
+    o?.town ||
+    o?.location?.city ||
+    o?.address?.city ||
+    o?.place?.city ||
+    ""
+  );
+}
+
+function pickOtherUserLabel(m) {
+  // prova a usare campi “user” già espansi dal backend, se presenti
+  const u = m?.otherUser || m?.other_user || m?.partner || m?.counterpart || null;
+  const name = u?.name || u?.full_name || u?.fullName || u?.email || "";
+  if (name) return name;
+
+  // fallback su id “grezzi”
+  const otherId =
+    normId(m?.otherId) ||
+    normId(m?.other_id) ||
+    normId(m?.helperId) ||
+    normId(m?.helper_id) ||
+    normId(m?.userId) ||
+    normId(m?.user_id);
+  return otherId ? `Utente ${otherId.slice(-6)}` : "Utente";
+}
+
+async function tryFetchMatches() {
+  // ✅ prima /me/matches (più comune), poi fallback /matches
+  try {
+    return await apiFetch("/me/matches");
+  } catch (e) {
+    const msg = String(e?.message || "").toLowerCase();
+    if (msg.includes("not found") || msg.includes("404")) {
+      return await apiFetch("/matches");
+    }
+    // se è una 401/403, propaghiamo comunque
+    throw e;
+  }
+}
+
+async function tryFetchRequests() {
+  try {
+    return await apiFetch("/requests");
+  } catch {
+    return { requests: [] };
+  }
+}
+
+async function tryFetchMe() {
+  // opzionale: serve solo per allineare “Con:”
+  try {
+    return await apiFetch("/me");
+  } catch {
+    try {
+      return await apiFetch("/users/me");
+    } catch {
+      return null;
+    }
+  }
+}
+
 export default function ChatsPage() {
   const auth = useContext(AuthContext) || {};
-  const user = auth.user ?? auth[0] ?? null;
-  const ready = auth.ready ?? auth[2] ?? false;
+  const ctxUser = auth.user ?? auth[0] ?? null;
 
+  const [me, setMe] = useState(ctxUser);
   const [matches, setMatches] = useState([]);
   const [reqMap, setReqMap] = useState({});
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (!ready) return;
-    if (!user) return;
+  const authed = !!readToken();
 
+  useEffect(() => {
+    // Mantieni “me” aggiornato se il contesto cambia
+    if (ctxUser?.id) setMe(ctxUser);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctxUser?.id]);
+
+  useEffect(() => {
+    if (!authed) return;
+
+    let alive = true;
     (async () => {
       try {
         setLoading(true);
         setErr("");
 
-        // ✅ prima prova /me/matches (più comune), poi fallback /matches
-        let mData = null;
-        try {
-          mData = await apiFetch("/me/matches");
-        } catch {
-          mData = await apiFetch("/matches");
-        }
+        const [meRes, mRes, rRes] = await Promise.allSettled([
+          tryFetchMe(),
+          tryFetchMatches(),
+          tryFetchRequests(),
+        ]);
 
-        // richieste (per titolo/città/descrizione)
-        let rData = { requests: [] };
-        try {
-          rData = await apiFetch("/requests");
-        } catch {
-          rData = { requests: [] };
-        }
+        if (!alive) return;
+
+        const meData = meRes.status === "fulfilled" ? meRes.value : null;
+        const mData = mRes.status === "fulfilled" ? mRes.value : null;
+        const rData = rRes.status === "fulfilled" ? rRes.value : { requests: [] };
 
         const ms = mData?.matches || mData?.items || mData?.list || [];
         const rs = rData?.requests || rData?.items || rData?.list || [];
 
+        // “me” se disponibile
+        const maybeUser =
+          meData?.user || meData?.me || meData?.item || meData?.data || meData || null;
+        if (maybeUser?.id) setMe(maybeUser);
+
+        // mappa richieste
         const map = {};
-        for (const r of rs) map[normId(r.id)] = r;
+        for (const r of rs) {
+          const rid = normId(r?.id);
+          if (rid) map[rid] = r;
+        }
+
+        // alcune API includono già la request dentro il match
+        for (const m of ms) {
+          const embedded = m?.request || m?.req || m?.request_data || null;
+          const rid = normId(
+            embedded?.id || m?.requestId || m?.request_id || m?.requestID || ""
+          );
+          if (rid && embedded && !map[rid]) map[rid] = embedded;
+        }
 
         setMatches(Array.isArray(ms) ? ms : []);
         setReqMap(map);
       } catch (e) {
         setErr(e?.message || "Errore caricamento chat.");
+        setMatches([]);
+        setReqMap({});
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     })();
-  }, [ready, user]);
+
+    return () => {
+      alive = false;
+    };
+  }, [authed]);
 
   const items = useMemo(() => {
-    const meId = user?.id ? String(user.id) : "";
+    const meId = me?.id ? String(me.id) : "";
+
     return (matches || []).map((m) => {
-      const requestId = normId(m.requestId || m.request_id);
-      const r = reqMap[requestId] || null;
+      const requestId = normId(m?.requestId || m?.request_id || m?.requestID);
+      const r = (requestId && reqMap[requestId]) || m?.request || m?.req || null;
 
-      const uId = normId(m.userId || m.user_id);
-      const hId = normId(m.helperId || m.helper_id);
+      const uId = normId(m?.userId || m?.user_id || m?.requesterId || m?.requester_id);
+      const hId = normId(m?.helperId || m?.helper_id);
 
-      const otherId = meId && uId === meId ? hId : uId;
+      const otherId = meId ? (uId === meId ? hId : uId) : "";
+      const status = String(m?.status || "match").toLowerCase();
 
       return {
-        ...m,
-        requestTitle: r?.title || `Richiesta ${requestId || ""}`,
-        requestCity: r?.city || "",
-        requestDesc: r?.description || "",
-        otherId,
+        id: normId(m?.id),
+        match: m,
         requestId,
+        status,
+        title: pickTitle(r) || (requestId ? `Richiesta ${requestId}` : "Richiesta"),
+        city: pickCity(r),
+        desc: pickDesc(r),
+        otherId,
+        otherLabel: pickOtherUserLabel({ ...m, otherId }),
       };
     });
-  }, [matches, reqMap, user]);
+  }, [matches, reqMap, me]);
 
   return (
     <Layout title="WeTrust — Chat">
       <h1>Chat</h1>
       <p className="subtitle">Le chat compaiono dopo un match (accettazione).</p>
 
-      {!ready && <p>Caricamento…</p>}
-
-      {ready && !user && (
+      {!authed && (
         <div className="cardInfo">
           <p>Devi accedere per vedere le chat.</p>
-          <Link className="btn" href="/login">Vai al login</Link>
+          <Link className="btn" href="/login">
+            Vai al login
+          </Link>
         </div>
       )}
 
-      {ready && user && (
+      {authed && (
         <>
           {loading && <p>Caricamento…</p>}
           {err && <p className="msg">{err}</p>}
@@ -111,53 +245,48 @@ export default function ChatsPage() {
           )}
 
           <div className="list">
-            {items.map((m) => (
-              <Link key={normId(m.id)} href={`/chat/${m.id}`} className="card">
+            {items.map((it) => (
+              <article key={it.id || `${it.requestId}-${it.status}`} className="card">
                 <div className="cardTop">
-                  <h2>{m.requestTitle}</h2>
-                  <span className={`badge ${String(m.status || "match").toLowerCase()}`}>
-                    {m.status || "match"}
-                  </span>
+                  <h2>{it.title}</h2>
+                  <span className={`badge ${it.status}`}>{it.status}</span>
                 </div>
 
-                {m.requestCity ? <p className="city">{m.requestCity}</p> : null}
-                <p className="desc">{clip(m.requestDesc, 140) || "Apri la chat per vedere i dettagli."}</p>
+                {it.city ? <p className="city">{it.city}</p> : null}
+                <p className="desc">
+                  {clip(it.desc, 160) || "Apri la chat per vedere i dettagli."}
+                </p>
 
                 <div className="row">
-                  <span className="who">
-                    Con: {m.otherId ? `Utente ${String(m.otherId).slice(-6)}` : "Utente"}
-                  </span>
-                  <span className="pill">Apri chat</span>
+                  <span className="who">Con: {it.otherLabel}</span>
+                  <Link className="btn" href={`/chat/${it.id}`}>
+                    Apri
+                  </Link>
                 </div>
-              </Link>
+              </article>
             ))}
           </div>
         </>
       )}
 
       <style jsx>{`
-        .subtitle { font-size: 14px; opacity: .92; margin-bottom: 14px; }
-        .msg { opacity: .95; margin: 10px 0; }
+        .subtitle {
+          font-size: 14px;
+          opacity: 0.92;
+          margin-bottom: 14px;
+        }
+        .msg {
+          opacity: 0.95;
+          margin: 10px 0;
+        }
 
-        .cardInfo{
+        .cardInfo {
           margin-top: 12px;
           max-width: 520px;
           border-radius: 18px;
           background: rgba(15, 23, 42, 0.95);
           border: 1px solid rgba(148, 163, 184, 0.35);
           padding: 14px 16px;
-        }
-        .btn {
-          display: inline-block;
-          margin-top: 10px;
-          border-radius: 999px;
-          border: none;
-          padding: 10px 16px;
-          font-weight: 900;
-          cursor: pointer;
-          background: linear-gradient(135deg, #00b4ff, #00e0a0);
-          color: #020617;
-          text-decoration: none;
         }
 
         .list {
@@ -166,17 +295,18 @@ export default function ChatsPage() {
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         }
 
+        /* ✅ stessi riquadri/stile della pagina Richieste */
         .card {
-          display: block;
           border-radius: 18px;
           background: rgba(15, 23, 42, 0.95);
           border: 1px solid rgba(148, 163, 184, 0.35);
           padding: 14px 16px;
-          text-decoration: none;
-          color: inherit;
           transition: transform 0.12s ease, border-color 0.12s ease;
         }
-        .card:hover { transform: translateY(-2px); border-color: rgba(0, 180, 255, 0.5); }
+        .card:hover {
+          transform: translateY(-2px);
+          border-color: rgba(0, 180, 255, 0.5);
+        }
 
         .cardTop {
           display: flex;
@@ -185,10 +315,22 @@ export default function ChatsPage() {
           align-items: flex-start;
         }
 
-        h2 { font-size: 16px; margin: 0; line-height: 1.2; }
+        h2 {
+          font-size: 16px;
+          margin: 0;
+          line-height: 1.2;
+        }
 
-        .city { margin: 8px 0 0; font-size: 12px; opacity: 0.85; }
-        .desc { font-size: 14px; margin: 10px 0 12px; opacity: 0.92; }
+        .city {
+          margin: 8px 0 0;
+          font-size: 12px;
+          opacity: 0.85;
+        }
+        .desc {
+          font-size: 14px;
+          margin: 10px 0 12px;
+          opacity: 0.92;
+        }
 
         .badge {
           padding: 4px 10px;
@@ -201,18 +343,31 @@ export default function ChatsPage() {
         }
 
         .row {
-          display:flex;
-          justify-content: space-between;
+          display: flex;
           gap: 10px;
+          flex-wrap: wrap;
           align-items: center;
-          opacity: 0.95;
+          justify-content: space-between;
         }
-        .who { font-size: 13px; opacity: .9; }
-        .pill {
-          padding: 4px 10px;
+        .who {
+          font-size: 13px;
+          opacity: 0.9;
+        }
+
+        .btn {
           border-radius: 999px;
-          border: 1px solid rgba(0, 180, 255, 0.35);
-          font-size: 12px;
+          border: none;
+          padding: 10px 16px;
+          font-weight: 900;
+          cursor: pointer;
+          background: linear-gradient(135deg, #00b4ff, #00e0a0);
+          color: #020617;
+          text-decoration: none;
+          display: inline-block;
+        }
+        .btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
       `}</style>
     </Layout>

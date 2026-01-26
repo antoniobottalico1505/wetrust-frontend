@@ -21,6 +21,28 @@ function getId(x) {
   return x == null ? "" : String(x);
 }
 
+function clip(s, n = 180) {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  return t.length > n ? `${t.slice(0, n).trim()}…` : t;
+}
+
+function pickCity(r) {
+  return (
+    r?.city ||
+    r?.city_name ||
+    r?.town ||
+    r?.location?.city ||
+    r?.address?.city ||
+    r?.place?.city ||
+    ""
+  );
+}
+
+function pickDesc(r) {
+  return r?.description || r?.desc || r?.text || r?.details || "";
+}
+
 export default function RequestsPage() {
   const router = useRouter();
 
@@ -125,7 +147,10 @@ export default function RequestsPage() {
           {msg}{" "}
           {String(msg).toLowerCase().includes("token") && (
             <>
-              <Link href="/login" className="lnk">Vai al login</Link>.
+              <Link href="/login" className="lnk">
+                Vai al login
+              </Link>
+              .
             </>
           )}
         </p>
@@ -145,8 +170,9 @@ export default function RequestsPage() {
               </span>
             </div>
 
-            {r.city ? <p className="city">{r.city}</p> : null}
-            <p className="desc">{r.description}</p>
+            {/* ✅ città sempre visibile se presente (anche se arriva nested) */}
+            {pickCity(r) ? <p className="city">{pickCity(r)}</p> : null}
+            <p className="desc">{clip(pickDesc(r)) || "Apri i dettagli per vedere la descrizione."}</p>
 
             <div className="row">
               <Link className="ghost" href={`/requests/${r.id}`}>
@@ -167,9 +193,20 @@ export default function RequestsPage() {
       </div>
 
       <style jsx>{`
-        .subtitle { font-size: 14px; opacity: .92; margin-bottom: 14px; }
-        .msg { opacity: .95; margin: 10px 0; }
-        .lnk { text-decoration: underline; color: #a5f3fc; font-weight: 800; }
+        .subtitle {
+          font-size: 14px;
+          opacity: 0.92;
+          margin-bottom: 14px;
+        }
+        .msg {
+          opacity: 0.95;
+          margin: 10px 0;
+        }
+        .lnk {
+          text-decoration: underline;
+          color: #a5f3fc;
+          font-weight: 800;
+        }
 
         .list {
           display: grid;
@@ -184,7 +221,10 @@ export default function RequestsPage() {
           padding: 14px 16px;
           transition: transform 0.12s ease, border-color 0.12s ease;
         }
-        .card:hover { transform: translateY(-2px); border-color: rgba(0, 180, 255, 0.5); }
+        .card:hover {
+          transform: translateY(-2px);
+          border-color: rgba(0, 180, 255, 0.5);
+        }
 
         .cardTop {
           display: flex;
@@ -193,10 +233,22 @@ export default function RequestsPage() {
           align-items: flex-start;
         }
 
-        h2 { font-size: 16px; margin: 0; line-height: 1.2; }
+        h2 {
+          font-size: 16px;
+          margin: 0;
+          line-height: 1.2;
+        }
 
-        .city { margin: 8px 0 0; font-size: 12px; opacity: 0.85; }
-        .desc { font-size: 14px; margin: 10px 0 12px; opacity: 0.92; }
+        .city {
+          margin: 8px 0 0;
+          font-size: 12px;
+          opacity: 0.85;
+        }
+        .desc {
+          font-size: 14px;
+          margin: 10px 0 12px;
+          opacity: 0.92;
+        }
 
         .badge {
           padding: 4px 10px;
@@ -207,7 +259,12 @@ export default function RequestsPage() {
           text-transform: lowercase;
         }
 
-        .row { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .row {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
 
         .btn {
           border-radius: 999px;
@@ -218,7 +275,10 @@ export default function RequestsPage() {
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
-        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
 
         .ghost {
           border-radius: 999px;

@@ -26,6 +26,18 @@ function normId(x) {
   return x == null ? "" : String(x);
 }
 
+function pickCity(o) {
+  return (
+    o?.city ||
+    o?.city_name ||
+    o?.town ||
+    o?.location?.city ||
+    o?.address?.city ||
+    o?.place?.city ||
+    ""
+  );
+}
+
 function PayBox({ onPaid }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -57,12 +69,12 @@ function PayBox({ onPaid }) {
   return (
     <div className="card">
       <h3>Paga (fondi bloccati)</h3>
-      <p className="sub">Stile Vinted: il denaro resta bloccato finché confermi la consegna del servizio.</p>
+      <p className="sub">
+        Stile Vinted: il denaro resta bloccato finché confermi la consegna del servizio.
+      </p>
       <form onSubmit={pay}>
         <PaymentElement />
-        <button disabled={loading || !stripe}>
-          {loading ? "Confermo…" : "Conferma pagamento"}
-        </button>
+        <button disabled={loading || !stripe}>{loading ? "Confermo…" : "Conferma pagamento"}</button>
       </form>
       {msg && <p className="msg">{msg}</p>}
 
@@ -74,7 +86,11 @@ function PayBox({ onPaid }) {
           padding: 14px 16px;
           margin-top: 12px;
         }
-        .sub { opacity: 0.9; margin: 6px 0 10px; font-size: 13px; }
+        .sub {
+          opacity: 0.9;
+          margin: 6px 0 10px;
+          font-size: 13px;
+        }
         button {
           margin-top: 10px;
           border-radius: 999px;
@@ -86,7 +102,10 @@ function PayBox({ onPaid }) {
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
-        .msg { font-size: 13px; margin-top: 8px; }
+        .msg {
+          font-size: 13px;
+          margin-top: 8px;
+        }
       `}</style>
     </div>
   );
@@ -98,7 +117,6 @@ export default function RequestDetailPage() {
 
   const auth = useContext(AuthContext) || {};
   const user = auth.user ?? auth[0] ?? null;
-  const ready = auth.ready ?? auth[2] ?? false;
 
   const [reqData, setReqData] = useState(null);
   const [match, setMatch] = useState(null);
@@ -114,24 +132,21 @@ export default function RequestDetailPage() {
   }, []);
 
   const ownerId =
-    reqData?.user_id ?? reqData?.userId ?? reqData?.user?.id ?? reqData?.requester_id ?? null;
+    reqData?.user_id ??
+    reqData?.userId ??
+    reqData?.user?.id ??
+    reqData?.requester_id ??
+    null;
 
   const canAccept = useMemo(() => {
     const st = String(reqData?.status || "").toLowerCase();
     const open = !st || st === "open" || st === "opened" || st === "pending";
-    return !!user && open && !match && normId(user.id) !== normId(ownerId);
+    return !!readToken() && !!user && open && !match && normId(user.id) !== normId(ownerId);
   }, [user, reqData, match, ownerId]);
 
   function extractMatchId(data) {
     const m = data?.match || data?.item || data;
-    return (
-      m?.id ||
-      data?.matchId ||
-      data?.match_id ||
-      m?.matchId ||
-      m?.match_id ||
-      null
-    );
+    return m?.id || data?.matchId || data?.match_id || m?.matchId || m?.match_id || null;
   }
 
   async function load() {
@@ -151,7 +166,6 @@ export default function RequestDetailPage() {
         return;
       }
 
-      // se loggato, prova anche /me/matches
       if (readToken()) {
         try {
           const mdata = await apiFetch("/me/matches");
@@ -177,7 +191,7 @@ export default function RequestDetailPage() {
   useEffect(() => {
     if (id) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, ready, user?.id]);
+  }, [id, user?.id]);
 
   async function accept() {
     setMsg("");
@@ -188,7 +202,6 @@ export default function RequestDetailPage() {
     }
 
     try {
-      // 1) POST /matches
       let data;
       try {
         data = await apiFetch("/matches", {
@@ -198,7 +211,6 @@ export default function RequestDetailPage() {
       } catch (e) {
         const m = String(e?.message || "").toLowerCase();
         if (m.includes("not found") || m.includes("404")) {
-          // 2) fallback /requests/:id/accept
           data = await apiFetch(`/requests/${id}/accept`, { method: "POST" });
         } else {
           throw e;
@@ -207,10 +219,9 @@ export default function RequestDetailPage() {
 
       const matchId = extractMatchId(data);
       const mObj = data?.match || data?.item || data;
-
       if (mObj) setMatch(mObj);
-      setMsg("Richiesta accettata ✅ Ora potete chattare.");
 
+      setMsg("Richiesta accettata ✅ Ora potete chattare.");
       if (matchId) router.push(`/chat/${matchId}`);
     } catch (err) {
       setMsg(err?.message || "Errore accettazione.");
@@ -219,7 +230,6 @@ export default function RequestDetailPage() {
 
   const requesterId =
     match?.requester_id ?? match?.userId ?? match?.requesterId ?? match?.user_id ?? null;
-
   const isRequester = user && requesterId && normId(user.id) === normId(requesterId);
 
   async function setPrice() {
@@ -246,7 +256,8 @@ export default function RequestDetailPage() {
       });
       setClientSecret(data?.clientSecret || null);
       setMatch(data?.match || data?.item || data);
-      if (data?.amount_cents != null) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee inclusa)`);
+      if (data?.amount_cents != null)
+        setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee inclusa)`);
     } catch (err) {
       setMsg(err?.message || "Errore avvio pagamento.");
     }
@@ -275,23 +286,31 @@ export default function RequestDetailPage() {
               <h1>{reqData.title}</h1>
               <p className="desc">{reqData.description}</p>
               <div className="meta">
-                {reqData.city && <span>{reqData.city}</span>}
+                {pickCity(reqData) && <span>{pickCity(reqData)}</span>}
                 <span className="badge">{reqData.status || "open"}</span>
               </div>
               <p style={{ marginTop: 10 }}>
-                <Link href="/requests" className="ghost">← Torna alle richieste</Link>
+                <Link href="/requests" className="ghost">
+                  ← Torna alle richieste
+                </Link>
               </p>
             </div>
 
             <div className="actions">
-              {!ready ? null : !readToken() ? (
-                <Link href="/login" className="btn">Accedi</Link>
+              {!readToken() ? (
+                <Link href="/login" className="btn">
+                  Accedi
+                </Link>
               ) : canAccept ? (
-                <button onClick={accept} className="btn">Accetta richiesta</button>
+                <button onClick={accept} className="btn">
+                  Accetta richiesta
+                </button>
               ) : null}
 
               {match?.id && (
-                <Link href={`/chat/${match.id}`} className="btn ghost">Apri chat</Link>
+                <Link href={`/chat/${match.id}`} className="btn ghost">
+                  Apri chat
+                </Link>
               )}
             </div>
           </div>
@@ -300,10 +319,20 @@ export default function RequestDetailPage() {
             <div className="grid">
               <div className="card">
                 <h3>Match</h3>
-                <p className="line"><strong>Status:</strong> {match.status || "—"}</p>
-                <p className="line"><strong>Prezzo:</strong> {match.price_cents ? centsToEUR(match.price_cents) : "non impostato"}</p>
-                <p className="line"><strong>Fee WeTrust:</strong> {match.fee_cents ? centsToEUR(match.fee_cents) : "—"}</p>
-                <p className="hint">Il denaro viene bloccato e rilasciato solo con conferma del richiedente.</p>
+                <p className="line">
+                  <strong>Status:</strong> {match.status || "—"}
+                </p>
+                <p className="line">
+                  <strong>Prezzo:</strong>{" "}
+                  {match.price_cents ? centsToEUR(match.price_cents) : "non impostato"}
+                </p>
+                <p className="line">
+                  <strong>Fee WeTrust:</strong>{" "}
+                  {match.fee_cents ? centsToEUR(match.fee_cents) : "—"}
+                </p>
+                <p className="hint">
+                  Il denaro viene bloccato e rilasciato solo con conferma del richiedente.
+                </p>
 
                 {isRequester && (
                   <>
@@ -313,16 +342,24 @@ export default function RequestDetailPage() {
                         onChange={(e) => setPriceEUR(e.target.value)}
                         placeholder="Prezzo in € (es. 25)"
                       />
-                      <button className="btn" onClick={setPrice}>Imposta prezzo</button>
+                      <button className="btn" onClick={setPrice}>
+                        Imposta prezzo
+                      </button>
                     </div>
 
                     <div className="row">
-                      <button className="btn" onClick={() => startPay(false)}>Paga (carta)</button>
-                      <button className="btn ghost" onClick={() => startPay(true)}>Paga usando voucher</button>
+                      <button className="btn" onClick={() => startPay(false)}>
+                        Paga (carta)
+                      </button>
+                      <button className="btn ghost" onClick={() => startPay(true)}>
+                        Paga usando voucher
+                      </button>
                     </div>
 
                     <div className="row">
-                      <button className="btn danger" onClick={release}>Conferma & rilascia pagamento</button>
+                      <button className="btn danger" onClick={release}>
+                        Conferma & rilascia pagamento
+                      </button>
                     </div>
                   </>
                 )}
@@ -336,7 +373,9 @@ export default function RequestDetailPage() {
                 <div className="card">
                   <h3>Pagamento</h3>
                   <p className="hint">
-                    Per il checkout Stripe serve impostare <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code>.
+                    {stripePromise
+                      ? "Avvia il pagamento dai pulsanti sopra: verrà generata la schermata Stripe."
+                      : "Per il checkout Stripe serve impostare NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY."}
                   </p>
                 </div>
               )}
@@ -344,19 +383,45 @@ export default function RequestDetailPage() {
           )}
 
           <style jsx>{`
-            .msgTop { font-size: 13px; margin: 6px 0 10px; }
+            .msgTop {
+              font-size: 13px;
+              margin: 6px 0 10px;
+            }
             .top {
-              display:flex;
+              display: flex;
               gap: 16px;
               justify-content: space-between;
               align-items: flex-start;
               flex-wrap: wrap;
             }
-            h1 { font-size: 26px; margin: 6px 0; }
-            .desc { color: #d1d5db; margin: 0 0 10px; max-width: 760px; }
-            .meta { display:flex; gap: 10px; font-size: 12px; color:#cbd5f5; align-items:center; }
-            .badge { padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(148,163,184,0.7); }
-            .actions { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+            h1 {
+              font-size: 26px;
+              margin: 6px 0;
+            }
+            .desc {
+              color: #d1d5db;
+              margin: 0 0 10px;
+              max-width: 760px;
+            }
+            .meta {
+              display: flex;
+              gap: 10px;
+              font-size: 12px;
+              color: #cbd5f5;
+              align-items: center;
+            }
+            .badge {
+              padding: 2px 8px;
+              border-radius: 999px;
+              border: 1px solid rgba(148, 163, 184, 0.7);
+              text-transform: lowercase;
+            }
+            .actions {
+              display: flex;
+              gap: 10px;
+              flex-wrap: wrap;
+              align-items: center;
+            }
             .btn {
               border-radius: 999px;
               border: none;
@@ -371,23 +436,42 @@ export default function RequestDetailPage() {
             }
             .ghost {
               background: transparent;
-              border: 1px solid rgba(148,163,184,0.6);
+              border: 1px solid rgba(148, 163, 184, 0.6);
               color: #ffffff;
             }
             .danger {
               background: linear-gradient(135deg, #00e0a0, #00b4ff);
             }
-            .grid { display:grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; }
-            @media(min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+            .grid {
+              display: grid;
+              grid-template-columns: 1fr;
+              gap: 12px;
+              margin-top: 14px;
+            }
+            @media (min-width: 900px) {
+              .grid {
+                grid-template-columns: 1fr 1fr;
+              }
+            }
             .card {
               border-radius: 18px;
               background: rgba(15, 23, 42, 0.95);
               border: 1px solid rgba(148, 163, 184, 0.4);
               padding: 14px 16px;
             }
-            .line { margin: 4px 0; }
-            .hint { font-size: 13px; opacity: 0.9; }
-            .row { display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+            .line {
+              margin: 4px 0;
+            }
+            .hint {
+              font-size: 13px;
+              opacity: 0.9;
+            }
+            .row {
+              display: flex;
+              gap: 10px;
+              flex-wrap: wrap;
+              margin-top: 10px;
+            }
             input {
               flex: 1;
               min-width: 180px;
@@ -398,7 +482,11 @@ export default function RequestDetailPage() {
               padding: 10px 12px;
               font-size: 14px;
             }
-            code { background: rgba(2,6,23,0.6); padding: 2px 6px; border-radius: 8px; }
+            code {
+              background: rgba(2, 6, 23, 0.6);
+              padding: 2px 6px;
+              border-radius: 8px;
+            }
           `}</style>
         </>
       )}
