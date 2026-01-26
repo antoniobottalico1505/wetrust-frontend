@@ -270,6 +270,38 @@ export default function RequestDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  const ownerId = getOwnerId(reqData);
+  const canAccept =
+    !!readToken() &&
+    !!reqData &&
+    (!ownerId || !user?.id || String(ownerId) !== String(user.id));
+
+  async function accept() {
+    setMsg("");
+
+    if (!readToken()) {
+      router.push("/login");
+      return;
+    }
+
+    if (ownerId && user?.id && String(ownerId) === String(user.id)) {
+      setMsg("Non puoi accettare la tua richiesta.");
+      return;
+    }
+
+    try {
+      const helperId = user?.id || (await apiFetch("/me"))?.user?.id;
+
+      const data = await apiFetch("/matches", {
+        method: "POST",
+        body: {
+          requestId: getRequestId(reqData, id),
+          helperId,
+          request_id: getRequestId(reqData, id),
+          helper_id: helperId,
+        },
+      });
+
       const matchId = data?.match?.id || data?.matchId || data?.match_id || data?.id;
       if (matchId) {
         router.push(`/chat/${matchId}`);
@@ -287,8 +319,13 @@ export default function RequestDetailPage() {
     <Layout title="WeTrust — Dettagli richiesta">
       <div className="wrap">
         <div className="topRow">
-  <Link href="/requests" className="ghost">← Torna alle richieste</Link>
-</div>
+          <Link href="/requests" className="ghost">← Torna alle richieste</Link>
+          {reqData && (
+            <button className="btn" onClick={accept} disabled={!canAccept}>
+              Accetta
+            </button>
+          )}
+        </div>
 
         {loading && <p>Caricamento…</p>}
         {!loading && msg && <p className="msg">{msg}</p>}

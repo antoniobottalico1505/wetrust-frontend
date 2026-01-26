@@ -144,27 +144,20 @@ const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACC
   });
 
 // ---------- STRIPE CONNECT ONBOARDING ----------
-// Supporta:
-// - POST e GET
-// - path con e senza prefisso /api (per quando il frontend usa API_BASE="/api")
-async function stripeOnboardHandler(request, reply) {
+app.post("/stripe/connect/onboard", { preHandler: [requireAuth] }, async (request, reply) => {
   if (!stripe) return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
 
   const baseUrl =
     request.body?.baseUrl ||
     request.body?.base_url ||
-    request.body?.returnUrl ||
-    request.body?.return_url ||
-    request.query?.baseUrl ||
-    request.query?.base_url ||
-    request.query?.returnUrl ||
-    request.query?.return_url ||
     request.headers.origin ||
     `${request.headers["x-forwarded-proto"] || "https"}://${request.headers.host}`;
 
   try {
+    // 1) se l’utente ha già un account Stripe, riusalo
     let accountId = request.user.stripeAccountId;
 
+    // 2) altrimenti crealo
     if (!accountId) {
       const acct = await stripe.accounts.create({
         type: "express",
@@ -172,9 +165,10 @@ async function stripeOnboardHandler(request, reply) {
         capabilities: { transfers: { requested: true } },
       });
       accountId = acct.id;
-      request.user.stripeAccountId = accountId; // in-memory in questa demo
+      request.user.stripeAccountId = accountId; // <- salva sul profilo utente (qui è in-memory)
     }
 
+    // 3) genera il link di onboarding
     const link = await stripe.accountLinks.create({
       account: accountId,
       type: "account_onboarding",
@@ -182,30 +176,12 @@ async function stripeOnboardHandler(request, reply) {
       return_url: `${baseUrl}/profile`,
     });
 
-    return reply.send({
-      ok: true,
-      url: link.url,
-      accountId,
-      stripeAccountId: accountId,
-      onboardingUrl: link.url,
-    });
+    return reply.send({ ok: true, url: link.url, accountId });
   } catch (e) {
     request.log.error(e, "Stripe connect onboarding failed");
     return reply.code(500).send({ ok: false, error: e.message || "Errore Stripe Connect" });
   }
-}
-
-const STRIPE_ONBOARD_PATHS = [
-  "/stripe/connect/onboard",
-  "/stripe/connect/onboarding",
-  "/api/stripe/connect/onboard",
-  "/api/stripe/connect/onboarding",
-];
-
-for (const p of STRIPE_ONBOARD_PATHS) {
-  app.post(p, { preHandler: [requireAuth] }, stripeOnboardHandler);
-  app.get(p, { preHandler: [requireAuth] }, stripeOnboardHandler);
-}
+});
 
   // ---------- STREAM TOKEN ----------
   // Il frontend chiama /stream/token dopo login e ottiene apiKey + token.
@@ -474,48 +450,6 @@ if (String(reqItem.userId) === String(helperId)) {
     matches.push(m);
     return reply.send({ ok: true, item: m });
   });
-
-// ---------------- MATCH MESSAGES ----------------
-// Serve al frontend web/pages/chat/[id].js che chiama:
-// GET/POST /matches/:id/messages (spesso con prefisso /api)
-async function getMatchMessagesHandler(request, reply) {
-  const matchId = String(request.params.id || "");
-  const m = ensureMatchAccess(request, reply, matchId);
-  if (!m) return;
-
-  if (!Array.isArray(m.messages)) m.messages = [];
-  return reply.send({ ok: true, messages: m.messages });
-}
-
-async function postMatchMessageHandler(request, reply) {
-  const matchId = String(request.params.id || "");
-  const m = ensureMatchAccess(request, reply, matchId);
-  if (!m) return;
-
-  const text = String(request.body?.text || request.body?.message || "").trim();
-  if (!text) return reply.code(400).send({ ok: false, error: "Testo obbligatorio" });
-
-  if (!Array.isArray(m.messages)) m.messages = [];
-
-  const msg = {
-    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
-    text,
-    createdAt: new Date().toISOString(),
-    userId: request.user.id,
-    userEmail: request.user.email || null,
-    userPhone: request.user.phone || null,
-  };
-
-  m.messages.push(msg);
-  return reply.send({ ok: true, message: msg, messages: m.messages });
-}
-
-const MATCH_MESSAGES_PATHS = ["/matches/:id/messages", "/api/matches/:id/messages"];
-
-for (const p of MATCH_MESSAGES_PATHS) {
-  app.get(p, { preHandler: [requireAuth] }, getMatchMessagesHandler);
-  app.post(p, { preHandler: [requireAuth] }, postMatchMessageHandler);
-}
 
   // ---------------- PAYMENTS (Stripe) ----------------
   app.post("/payments/create-intent", { preHandler: [requireAuth] }, async (request, reply) => {
