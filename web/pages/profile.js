@@ -113,35 +113,103 @@ export default function ProfilePage() {
   }
 
   async function startOnboarding() {
-    setMsg("");
-    try {
-      setLoading(true);
-      const baseUrl = window.location.origin;
+  setMsg("");
+  try {
+    setLoading(true);
 
-      const data = await tryCalls([
-        () => apiFetch("/stripe/connect/onboard", { method: "POST", body: { baseUrl } }),
-        () => apiFetch("/stripe/connect/onboard", { method: "POST", body: JSON.stringify({ baseUrl }) }),
-        () => apiFetch("/stripe/connect/onboarding", { method: "POST", body: { baseUrl } }),
-        () => apiFetch("/stripe/onboard", { method: "POST", body: { baseUrl } }),
-        // fallback GET (alcuni backend usano querystring)
-        () => apiFetch(`/stripe/connect/onboard?baseUrl=${encodeURIComponent(baseUrl)}`),
-        () => apiFetch(`/stripe/onboard?baseUrl=${encodeURIComponent(baseUrl)}`),
-      ]);
+    const baseUrl = window.location.origin;
 
-      const url = pickUrl(data);
-      if (url) {
-        window.location.href = url;
-        return;
+    const endpoints = [
+      "/stripe/connect/onboard",
+      "/stripe/connect/onboarding",
+      "/stripe/onboard",
+      "/stripe/onboarding",
+      "/payments/stripe/onboard",
+      "/payments/onboard",
+    ];
+
+    const bodies = [
+      { baseUrl },
+      { base_url: baseUrl },
+      { returnUrl: baseUrl },
+      { return_url: baseUrl },
+    ];
+
+    let lastErr = null;
+
+    // 1) POST
+    for (const ep of endpoints) {
+      for (const body of bodies) {
+        try {
+          const data = await apiFetch(ep, { method: "POST", body });
+
+          const url =
+            data?.url ||
+            data?.onboarding_url ||
+            data?.account_link_url ||
+            data?.link ||
+            data?.redirect_url ||
+            (typeof data === "string" ? data : null);
+
+          if (url) {
+            window.location.href = url;
+            return;
+          }
+
+          await refresh();
+          setMsg("Onboarding avviato ✅");
+          return;
+        } catch (e) {
+          lastErr = e;
+          const m = String(e?.message || "").toLowerCase();
+          if (m.includes("not found") || m.includes("404")) break;
+        }
       }
-
-      await refresh();
-      setMsg("Attivazione pagamenti avviata ✅");
-    } catch (err) {
-      setMsg(err?.message || "Errore nell'apertura onboarding Stripe.");
-    } finally {
-      setLoading(false);
     }
+
+    // 2) GET fallback
+    for (const ep of endpoints) {
+      const urls = [
+        `${ep}?baseUrl=${encodeURIComponent(baseUrl)}`,
+        `${ep}?base_url=${encodeURIComponent(baseUrl)}`,
+        `${ep}?return_url=${encodeURIComponent(baseUrl)}`,
+      ];
+
+      for (const u of urls) {
+        try {
+          const data = await apiFetch(u);
+
+          const url =
+            data?.url ||
+            data?.onboarding_url ||
+            data?.account_link_url ||
+            data?.link ||
+            data?.redirect_url ||
+            (typeof data === "string" ? data : null);
+
+          if (url) {
+            window.location.href = url;
+            return;
+          }
+
+          await refresh();
+          setMsg("Onboarding avviato ✅");
+          return;
+        } catch (e) {
+          lastErr = e;
+          const m = String(e?.message || "").toLowerCase();
+          if (m.includes("not found") || m.includes("404")) break;
+        }
+      }
+    }
+
+    throw lastErr || new Error("Not found");
+  } catch (e) {
+    setMsg(e?.message || "Errore nell'apertura onboarding Stripe.");
+  } finally {
+    setLoading(false);
   }
+}
 
   if (!ready) return <Layout title="WeTrust"><p>Caricamento…</p></Layout>;
 

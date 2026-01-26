@@ -36,6 +36,45 @@ function clip(s, n = 180) {
   return t.length > n ? `${t.slice(0, n).trim()}…` : t;
 }
 
+function pickCity(r) {
+  const v =
+    r?.city ??
+    r?.location ??
+    r?.town ??
+    r?.address?.city ??
+    r?.location?.city ??
+    r?.place?.city ??
+    "";
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function getOwnerId(r) {
+  const v =
+    r?.user_id ??
+    r?.userId ??
+    r?.owner_id ??
+    r?.ownerId ??
+    r?.requester_id ??
+    r?.requesterId ??
+    r?.user?.id ??
+    r?.owner?.id ??
+    "";
+  return v == null ? "" : String(v);
+}
+
+function getRequestId(r) {
+  const v = r?.id || r?._id || r?.requestId || r?.request_id || "";
+  return v == null ? "" : String(v);
+}
+
+function cacheRequest(r) {
+  try {
+    const rid = getRequestId(r);
+    if (!rid) return;
+    sessionStorage.setItem(`wetrust_request_${rid}`, JSON.stringify(r));
+  } catch {}
+}
+
 export default function RequestsPage() {
   const router = useRouter();
   const auth = useContext(AuthContext) || {};
@@ -113,6 +152,12 @@ export default function RequestsPage() {
       router.push("/login");
       return;
     }
+
+const ownerId = getOwnerId(r);
+if (ownerId && helperId && String(ownerId) === String(helperId)) {
+  setMsg("Non puoi accettare la tua richiesta.");
+  return;
+}
 
     const requestId = getRequestId(r);
     if (!requestId) {
@@ -192,8 +237,9 @@ export default function RequestsPage() {
 
       <div className="list">
         {requests.map((r) => {
-          const rid = getRequestId(r);
-          const city = cleanCity(r?.city);
+         const rid = getRequestId(r);
+const city = pickCity(r);
+const mine = meId && getOwnerId(r) && String(meId) === String(getOwnerId(r));
           return (
             <article key={rid || normId(r?.id) || Math.random()} className="card">
               <div className="cardTop">
@@ -207,15 +253,21 @@ export default function RequestsPage() {
               <p className="desc">{clip(r.description) || "Apri i dettagli per vedere la descrizione."}</p>
 
               <div className="row">
-                <Link className="ghost" href={`/requests/${rid}`}>
-                  Dettagli
-                </Link>
+                <Link
+  className="ghost"
+  href={`/requests/${rid}`}
+  onClick={() => cacheRequest(r)}
+>
+  Dettagli
+</Link>
 
                 <button
                   className="btn"
                   onClick={() => accept(r)}
                   disabled={!canAccept(r)}
                   title={!isLogged ? "Devi essere loggato" : ""}
+disabled={loadingAccept === rid || mine}
+title={mine ? "Non puoi accettare la tua richiesta" : ""}
                 >
                   Accetta
                 </button>

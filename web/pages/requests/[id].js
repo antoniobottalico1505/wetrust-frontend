@@ -26,6 +26,89 @@ function normId(x) {
   return x == null ? "" : String(x);
 }
 
+function getRequestId(r, fallback = "") {
+  return String(r?.id || r?._id || r?.requestId || r?.request_id || fallback || "");
+}
+
+function pickCity(r) {
+  const v =
+    r?.city ??
+    r?.location ??
+    r?.town ??
+    r?.address?.city ??
+    r?.location?.city ??
+    r?.place?.city ??
+    "";
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function getOwnerId(r) {
+  return String(
+    r?.user_id ??
+      r?.userId ??
+      r?.owner_id ??
+      r?.ownerId ??
+      r?.requester_id ??
+      r?.requesterId ??
+      r?.user?.id ??
+      r?.owner?.id ??
+      ""
+  );
+}
+
+function loadCachedRequest(id) {
+  try {
+    const raw = sessionStorage.getItem(`wetrust_request_${id}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function cacheRequest(id, data) {
+  try {
+    if (!id || !data) return;
+    sessionStorage.setItem(`wetrust_request_${id}`, JSON.stringify(data));
+  } catch {}
+}
+
+async function fetchRequestById(id) {
+  // 1) principale
+  try {
+    return await apiFetch(`/requests/${id}`);
+  } catch (e) {
+    const m = String(e?.message || "").toLowerCase();
+    if (!(m.includes("not found") || m.includes("404"))) throw e;
+  }
+
+  // 2) alternative comuni
+  const alt = [
+    `/request/${id}`,
+    `/requests?id=${encodeURIComponent(id)}`,
+    `/requests/${id}/detail`,
+  ];
+  for (const ep of alt) {
+    try {
+      return await apiFetch(ep);
+    } catch (e) {
+      const m = String(e?.message || "").toLowerCase();
+      if (m.includes("not found") || m.includes("404")) continue;
+      throw e;
+    }
+  }
+
+  // 3) ultima spiaggia: lista e filtro
+  try {
+    const data = await apiFetch("/requests");
+    const list = data?.requests || data?.items || data?.list || data || [];
+    const arr = Array.isArray(list) ? list : [];
+    const found = arr.find((r) => getRequestId(r) === String(id)) || null;
+    if (found) return { request: found };
+  } catch {}
+
+  throw new Error("Not found");
+}
+
 function PayBox({ onPaid }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -138,12 +221,16 @@ export default function RequestDetailPage() {
     if (!id) return;
     setMsg("");
 
+const cached = typeof window !== "undefined" ? loadCachedRequest(String(id)) : null;
+if (cached) setReqData(cached);
+
     try {
       setLoading(true);
 
-      const data = await apiFetch(`/requests/${id}`);
+     const data = await fetchRequestById(id);
       const request = data?.request || data?.item || data?.data || data;
       setReqData(request || null);
+if (request) cacheRequest(getRequestId(request, id), request);
 
       const m0 = data?.match || data?.itemMatch || null;
       if (m0?.id) {
@@ -181,6 +268,12 @@ export default function RequestDetailPage() {
 
   async function accept() {
     setMsg("");
+
+const ownerId = getOwnerId(reqData);
+if (ownerId && user?.id && String(ownerId) === String(user.id)) {
+  setMsg("Non puoi accettare la tua richiesta.");
+  return;
+}
 
     if (!readToken()) {
       router.push("/login");
@@ -284,7 +377,7 @@ export default function RequestDetailPage() {
               <h1>{reqData.title}</h1>
               <p className="desc">{reqData.description}</p>
               <div className="meta">
-                {typeof reqData.city === "string" && reqData.city.trim() ? <span>{reqData.city.trim()}</span> : null}
+                {pickCity(reqData) ? <span>{pickCity(reqData)}</span> : null}
                 <span className="badge">{reqData.status || "open"}</span>
               </div>
               <p style={{ marginTop: 10 }}>
@@ -308,8 +401,8 @@ export default function RequestDetailPage() {
   <h3>Dettagli richiesta</h3>
   <p className="line"><strong>ID:</strong> {reqData.id || reqData._id || id}</p>
   <p className="line"><strong>Stato:</strong> {reqData.status || "open"}</p>
-  {typeof reqData.city === "string" && reqData.city.trim() ? (
-    <p className="line"><strong>Città:</strong> {reqData.city.trim()}</p>
+  {pickCity(reqData) ? <span>{pickCity(reqData)}</span>(
+    <p className="line"><strong>Città:</strong></p>
   ) : null}
   {reqData.createdAt || reqData.created_at ? (
     <p className="line"><strong>Creato:</strong> {new Date(reqData.createdAt || reqData.created_at).toLocaleString()}</p>
