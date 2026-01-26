@@ -91,7 +91,6 @@ export default function ProfilePage() {
     try {
       setLoading(true);
 
-      // ✅ prova endpoint realistici (se il backend ne espone uno, ora funziona)
       await tryCalls([
         () => apiFetch("/vouchers/redeem", { method: "POST", body: { code } }),
         () => apiFetch("/vouchers/redeem", { method: "POST", body: JSON.stringify({ code }) }),
@@ -99,6 +98,10 @@ export default function ProfilePage() {
         () => apiFetch("/wallet/redeem", { method: "POST", body: JSON.stringify({ code }) }),
         () => apiFetch("/voucher/redeem", { method: "POST", body: { code } }),
         () => apiFetch("/redeem", { method: "POST", body: { code } }),
+
+        // fallback /api (Vercel / Next API routes)
+        () => apiFetch("/api/vouchers/redeem", { method: "POST", body: { code } }),
+        () => apiFetch("/api/wallet/redeem", { method: "POST", body: { code } }),
       ]);
 
       setRedeemCode("");
@@ -113,105 +116,124 @@ export default function ProfilePage() {
   }
 
   async function startOnboarding() {
-  setMsg("");
-  try {
-    setLoading(true);
+    setMsg("");
+    try {
+      setLoading(true);
 
-    const baseUrl = window.location.origin;
+      // Se il backend mette già un link nell'utente, usa quello direttamente
+      const direct =
+        pickUrl(user) ||
+        user?.stripe_onboarding_url ||
+        user?.stripeOnboardingUrl ||
+        user?.onboarding_url ||
+        user?.onboardingUrl ||
+        "";
 
-    const endpoints = [
-      "/stripe/connect/onboard",
-      "/stripe/connect/onboarding",
-      "/stripe/onboard",
-      "/stripe/onboarding",
-      "/payments/stripe/onboard",
-      "/payments/onboard",
-    ];
-
-    const bodies = [
-      { baseUrl },
-      { base_url: baseUrl },
-      { returnUrl: baseUrl },
-      { return_url: baseUrl },
-    ];
-
-    let lastErr = null;
-
-    // 1) POST
-    for (const ep of endpoints) {
-      for (const body of bodies) {
-        try {
-          const data = await apiFetch(ep, { method: "POST", body });
-
-          const url =
-            data?.url ||
-            data?.onboarding_url ||
-            data?.account_link_url ||
-            data?.link ||
-            data?.redirect_url ||
-            (typeof data === "string" ? data : null);
-
-          if (url) {
-            window.location.href = url;
-            return;
-          }
-
-          await refresh();
-          setMsg("Onboarding avviato ✅");
-          return;
-        } catch (e) {
-          lastErr = e;
-          const m = String(e?.message || "").toLowerCase();
-          if (m.includes("not found") || m.includes("404")) break;
-        }
+      if (direct) {
+        window.location.href = direct;
+        return;
       }
-    }
 
-    // 2) GET fallback
-    for (const ep of endpoints) {
-      const urls = [
-        `${ep}?baseUrl=${encodeURIComponent(baseUrl)}`,
-        `${ep}?base_url=${encodeURIComponent(baseUrl)}`,
-        `${ep}?return_url=${encodeURIComponent(baseUrl)}`,
+      const baseUrl = window.location.origin;
+
+      // ✅ aggiunti fallback /api/* (tipico su Vercel)
+      const endpoints = [
+        "/stripe/connect/onboard",
+        "/stripe/connect/onboarding",
+        "/stripe/onboard",
+        "/stripe/onboarding",
+        "/payments/stripe/onboard",
+        "/payments/onboard",
+
+        "/api/stripe/connect/onboard",
+        "/api/stripe/connect/onboarding",
+        "/api/stripe/onboard",
+        "/api/stripe/onboarding",
+        "/api/payments/stripe/onboard",
+        "/api/payments/onboard",
       ];
 
-      for (const u of urls) {
-        try {
-          const data = await apiFetch(u);
+      const bodies = [
+        { baseUrl },
+        { base_url: baseUrl },
+        { returnUrl: baseUrl },
+        { return_url: baseUrl },
+      ];
 
-          const url =
-            data?.url ||
-            data?.onboarding_url ||
-            data?.account_link_url ||
-            data?.link ||
-            data?.redirect_url ||
-            (typeof data === "string" ? data : null);
+      let lastErr = null;
 
-          if (url) {
-            window.location.href = url;
+      // 1) POST
+      for (const ep of endpoints) {
+        for (const body of bodies) {
+          try {
+            const data = await apiFetch(ep, { method: "POST", body });
+            const url = pickUrl(data) || (typeof data === "string" ? data : "");
+
+            if (url) {
+              window.location.href = url;
+              return;
+            }
+
+            await refresh();
+            setMsg("Onboarding avviato ✅");
             return;
+          } catch (e) {
+            lastErr = e;
+            const m = String(e?.message || "").toLowerCase();
+            if (m.includes("not found") || m.includes("404")) break;
           }
-
-          await refresh();
-          setMsg("Onboarding avviato ✅");
-          return;
-        } catch (e) {
-          lastErr = e;
-          const m = String(e?.message || "").toLowerCase();
-          if (m.includes("not found") || m.includes("404")) break;
         }
       }
+
+      // 2) GET fallback
+      for (const ep of endpoints) {
+        const urls = [
+          `${ep}?baseUrl=${encodeURIComponent(baseUrl)}`,
+          `${ep}?base_url=${encodeURIComponent(baseUrl)}`,
+          `${ep}?return_url=${encodeURIComponent(baseUrl)}`,
+        ];
+
+        for (const u of urls) {
+          try {
+            const data = await apiFetch(u);
+            const url = pickUrl(data) || (typeof data === "string" ? data : "");
+
+            if (url) {
+              window.location.href = url;
+              return;
+            }
+
+            await refresh();
+            setMsg("Onboarding avviato ✅");
+            return;
+          } catch (e) {
+            lastErr = e;
+            const m = String(e?.message || "").toLowerCase();
+            if (m.includes("not found") || m.includes("404")) break;
+          }
+        }
+      }
+
+      throw lastErr || new Error("Not found");
+    } catch (e) {
+      const m = String(e?.message || "");
+      if (m.toLowerCase().includes("not found") || m.includes("404")) {
+        setMsg("Errore: endpoint onboarding Stripe non disponibile sul backend (404).");
+      } else {
+        setMsg(m || "Errore nell'apertura onboarding Stripe.");
+      }
+    } finally {
+      setLoading(false);
     }
-
-    throw lastErr || new Error("Not found");
-  } catch (e) {
-    setMsg(e?.message || "Errore nell'apertura onboarding Stripe.");
-  } finally {
-    setLoading(false);
   }
-}
 
-  if (!ready) return <Layout title="WeTrust"><p>Caricamento…</p></Layout>;
+  if (!ready) {
+    return (
+      <Layout title="WeTrust">
+        <p>Caricamento…</p>
+      </Layout>
+    );
+  }
 
   if (!user) {
     return (
@@ -310,12 +332,16 @@ export default function ProfilePage() {
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
+        button:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
         .ghost {
           background: transparent;
           color: #ffffff;
           border: 1px solid rgba(148,163,184,0.6);
         }
-        .hr { width:100%; border:none; border-top:1px solid rgba(148,163,184,0.25); margin: 4px 0; }
+        .hr { width:100%; border:none; border-top:1px solid rgba(148, 163, 184, 0.25); margin: 4px 0; }
         .msg { font-size: 13px; }
       `}</style>
     </Layout>

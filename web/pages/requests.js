@@ -22,8 +22,43 @@ function normId(x) {
   return x == null ? "" : String(x);
 }
 
-function cleanCity(city) {
-  return typeof city === "string" ? city.trim() : "";
+function asObj(r) {
+  return r?.request ?? r?.item ?? r;
+}
+
+function getRequestId(r) {
+  const o = asObj(r);
+  const v = o?.id || o?._id || o?.requestId || o?.request_id || "";
+  return v == null ? "" : String(v);
+}
+
+function getOwnerId(r) {
+  const o = asObj(r);
+  const v =
+    o?.user_id ??
+    o?.userId ??
+    o?.owner_id ??
+    o?.ownerId ??
+    o?.requester_id ??
+    o?.requesterId ??
+    o?.user?.id ??
+    o?.owner?.id ??
+    "";
+  return v == null ? "" : String(v);
+}
+
+function pickCity(r) {
+  const o = asObj(r);
+  const v =
+    o?.city ??
+    o?.location ??
+    o?.town ??
+    o?.address?.city ??
+    o?.location?.city ??
+    o?.place?.city ??
+    o?.place?.town ??
+    "";
+  return typeof v === "string" ? v.trim() : "";
 }
 
 function clip(s, n = 180) {
@@ -32,42 +67,13 @@ function clip(s, n = 180) {
   return t.length > n ? `${t.slice(0, n).trim()}…` : t;
 }
 
-function pickCity(r) {
-  const v =
-    r?.city ??
-    r?.location ??
-    r?.town ??
-    r?.address?.city ??
-    r?.location?.city ??
-    r?.place?.city ??
-    "";
-  return typeof v === "string" ? v.trim() : "";
-}
-
-function getOwnerId(r) {
-  const v =
-    r?.user_id ??
-    r?.userId ??
-    r?.owner_id ??
-    r?.ownerId ??
-    r?.requester_id ??
-    r?.requesterId ??
-    r?.user?.id ??
-    r?.owner?.id ??
-    "";
-  return v == null ? "" : String(v);
-}
-
-function getRequestId(r) {
-  const v = r?.id || r?._id || r?.requestId || r?.request_id || "";
-  return v == null ? "" : String(v);
-}
-
 function cacheRequest(r) {
   try {
+    if (typeof window === "undefined") return;
     const rid = getRequestId(r);
     if (!rid) return;
-    sessionStorage.setItem(`wetrust_request_${rid}`, JSON.stringify(r));
+    const o = asObj(r);
+    sessionStorage.setItem(`wetrust_request_${rid}`, JSON.stringify(o));
   } catch {}
 }
 
@@ -81,9 +87,12 @@ export default function RequestsPage() {
   const [msg, setMsg] = useState("");
   const [isLogged, setIsLogged] = useState(false);
   const [meId, setMeId] = useState(ctxUser?.id ? normId(ctxUser.id) : "");
+  const [loadingAccept, setLoadingAccept] = useState("");
 
   useEffect(() => {
     setIsLogged(!!readToken());
+    if (readToken()) ensureMeId();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -92,8 +101,19 @@ export default function RequestsPage() {
 
   async function ensureMeId() {
     if (meId) return meId;
+    if (!readToken()) return "";
     try {
-      const data = await apiFetch("/me");
+      let data;
+      try {
+        data = await apiFetch("/me");
+      } catch (e) {
+        const m = String(e?.message || "").toLowerCase();
+        if (m.includes("not found") || m.includes("404")) {
+          data = await apiFetch("/users/me");
+        } else {
+          throw e;
+        }
+      }
       const u = data?.user || data?.me || data?.item || data?.data || data || null;
       const id = u?.id ? normId(u.id) : "";
       if (id) setMeId(id);
@@ -108,7 +128,7 @@ export default function RequestsPage() {
     try {
       setLoading(true);
       const data = await apiFetch("/requests");
-      const list = data?.requests || data?.items || data?.list || [];
+      const list = data?.requests || data?.items || data?.list || data || [];
       setRequests(Array.isArray(list) ? list : []);
     } catch (err) {
       setRequests([]);
@@ -124,7 +144,8 @@ export default function RequestsPage() {
   }, []);
 
   function canAccept(r) {
-    const st = String(r?.status || "").toLowerCase();
+    const o = asObj(r);
+    const st = String(o?.status || "").toLowerCase();
     if (!st) return true;
     return st === "open" || st === "opened" || st === "pending";
   }
@@ -149,12 +170,6 @@ export default function RequestsPage() {
       return;
     }
 
-const ownerId = getOwnerId(r);
-if (ownerId && helperId && String(ownerId) === String(helperId)) {
-  setMsg("Non puoi accettare la tua richiesta.");
-  return;
-}
-
     const requestId = getRequestId(r);
     if (!requestId) {
       setMsg("Errore: id richiesta mancante.");
@@ -167,8 +182,15 @@ if (ownerId && helperId && String(ownerId) === String(helperId)) {
       return;
     }
 
+    const ownerId = getOwnerId(r);
+    if (ownerId && String(ownerId) === String(helperId)) {
+      setMsg("Non puoi accettare la tua richiesta.");
+      return;
+    }
+
     try {
-      // 1) tentativo principale: POST /matches
+      setLoadingAccept(requestId);
+
       let data;
       try {
         data = await apiFetch("/matches", {
@@ -182,7 +204,6 @@ if (ownerId && helperId && String(ownerId) === String(helperId)) {
         });
       } catch (e) {
         const m = String(e?.message || "").toLowerCase();
-        // 2) fallback: alcuni backend usano /requests/:id/accept
         if (m.includes("not found") || m.includes("404")) {
           data = await apiFetch(`/requests/${requestId}/accept`, {
             method: "POST",
@@ -204,6 +225,8 @@ if (ownerId && helperId && String(ownerId) === String(helperId)) {
       await load();
     } catch (e) {
       setMsg(e?.message || "Errore nell’accettazione.");
+    } finally {
+      setLoadingAccept("");
     }
   }
 
@@ -221,7 +244,10 @@ if (ownerId && helperId && String(ownerId) === String(helperId)) {
           {msg}{" "}
           {String(msg).toLowerCase().includes("token") && (
             <>
-              <Link href="/login" className="lnk">Vai al login</Link>.
+              <Link href="/login" className="lnk">
+                Vai al login
+              </Link>
+              .
             </>
           )}
         </p>
@@ -232,40 +258,50 @@ if (ownerId && helperId && String(ownerId) === String(helperId)) {
       )}
 
       <div className="list">
-        {requests.map((r) => {
-         const rid = getRequestId(r);
-const city = pickCity(r);
-const mine = meId && getOwnerId(r) && String(meId) === String(getOwnerId(r));
+        {requests.map((raw, idx) => {
+          const r = asObj(raw);
+          const rid =
+            getRequestId(raw) || normId(r?.id) || normId(r?._id) || String(idx);
+          const city = pickCity(raw);
+          const ownerId = getOwnerId(raw);
+          const mine = meId && ownerId && String(meId) === String(ownerId);
+
           return (
-            <article key={rid || normId(r?.id) || Math.random()} className="card">
+            <article key={rid} className="card">
               <div className="cardTop">
-                <h2>{r.title || "Richiesta"}</h2>
-                <span className={`badge ${String(r.status || "open").toLowerCase()}`}>
-                  {r.status || "open"}
+                <h2>{r?.title || "Richiesta"}</h2>
+                <span className={`badge ${String(r?.status || "open").toLowerCase()}`}>
+                  {r?.status || "open"}
                 </span>
               </div>
 
               {city ? <p className="city">{city}</p> : null}
-              <p className="desc">{clip(r.description) || "Apri i dettagli per vedere la descrizione."}</p>
+              <p className="desc">
+                {clip(r?.description) || "Apri i dettagli per vedere la descrizione."}
+              </p>
 
               <div className="row">
                 <Link
-  className="ghost"
-  href={`/requests/${rid}`}
-  onClick={() => cacheRequest(r)}
->
-  Dettagli
-</Link>
+                  className="ghost"
+                  href={`/requests/${rid}`}
+                  onClick={() => cacheRequest(raw)}
+                >
+                  Dettagli
+                </Link>
 
                 <button
                   className="btn"
-                  onClick={() => accept(r)}
-                  disabled={!canAccept(r)}
-                  title={!isLogged ? "Devi essere loggato" : ""}
-disabled={loadingAccept === rid || mine}
-title={mine ? "Non puoi accettare la tua richiesta" : ""}
+                  onClick={() => accept(raw)}
+                  disabled={!isLogged || !canAccept(raw) || mine || loadingAccept === rid}
+                  title={
+                    !isLogged
+                      ? "Devi essere loggato"
+                      : mine
+                      ? "Non puoi accettare la tua richiesta"
+                      : ""
+                  }
                 >
-                  Accetta
+                  {loadingAccept === rid ? "..." : "Accetta"}
                 </button>
               </div>
             </article>
@@ -274,9 +310,20 @@ title={mine ? "Non puoi accettare la tua richiesta" : ""}
       </div>
 
       <style jsx>{`
-        .subtitle { font-size: 14px; opacity: .92; margin-bottom: 14px; }
-        .msg { opacity: .95; margin: 10px 0; }
-        .lnk { text-decoration: underline; color: #a5f3fc; font-weight: 800; }
+        .subtitle {
+          font-size: 14px;
+          opacity: 0.92;
+          margin-bottom: 14px;
+        }
+        .msg {
+          opacity: 0.95;
+          margin: 10px 0;
+        }
+        .lnk {
+          text-decoration: underline;
+          color: #a5f3fc;
+          font-weight: 800;
+        }
 
         .list {
           display: grid;
@@ -291,7 +338,10 @@ title={mine ? "Non puoi accettare la tua richiesta" : ""}
           padding: 14px 16px;
           transition: transform 0.12s ease, border-color 0.12s ease;
         }
-        .card:hover { transform: translateY(-2px); border-color: rgba(0, 180, 255, 0.5); }
+        .card:hover {
+          transform: translateY(-2px);
+          border-color: rgba(0, 180, 255, 0.5);
+        }
 
         .cardTop {
           display: flex;
@@ -300,10 +350,22 @@ title={mine ? "Non puoi accettare la tua richiesta" : ""}
           align-items: flex-start;
         }
 
-        h2 { font-size: 16px; margin: 0; line-height: 1.2; }
+        h2 {
+          font-size: 16px;
+          margin: 0;
+          line-height: 1.2;
+        }
 
-        .city { margin: 8px 0 0; font-size: 12px; opacity: 0.85; }
-        .desc { font-size: 14px; margin: 10px 0 12px; opacity: 0.92; }
+        .city {
+          margin: 8px 0 0;
+          font-size: 12px;
+          opacity: 0.85;
+        }
+        .desc {
+          font-size: 14px;
+          margin: 10px 0 12px;
+          opacity: 0.92;
+        }
 
         .badge {
           padding: 4px 10px;
@@ -314,7 +376,12 @@ title={mine ? "Non puoi accettare la tua richiesta" : ""}
           text-transform: lowercase;
         }
 
-        .row { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .row {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
 
         .btn {
           border-radius: 999px;
@@ -325,7 +392,10 @@ title={mine ? "Non puoi accettare la tua richiesta" : ""}
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
-        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
 
         .ghost {
           border-radius: 999px;
