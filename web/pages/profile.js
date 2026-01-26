@@ -3,6 +3,11 @@ import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import { AuthContext } from "./_app";
 
+function isNotFound(err) {
+  const m = String(err?.message || "").toLowerCase();
+  return m.includes("not found") || m.includes("404");
+}
+
 export default function ProfilePage() {
   const auth = useContext(AuthContext) || {};
   const user = auth.user ?? auth[0] ?? null;
@@ -15,34 +20,87 @@ export default function ProfilePage() {
   const [redeemCode, setRedeemCode] = useState("");
   const [loading, setLoading] = useState(false);
 
+  async function loadWallet() {
+    try {
+      const data = await apiFetch("/wallet");
+      setWallet(Number(data?.wallet_cents || 0));
+    } catch {
+      setWallet(0);
+    }
+  }
+
   useEffect(() => {
     if (!ready || !user) return;
-    (async () => {
-      try {
-        const data = await apiFetch("/wallet");
-        setWallet(Number(data?.wallet_cents || 0));
-      } catch {
-        setWallet(0);
-      }
-    })();
-  }, [ready, user]);
+    loadWallet();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, user?.id]);
+
+  async function doRefresh() {
+    setMsg("");
+    try {
+      setLoading(true);
+      await refresh();
+      await loadWallet();
+      setMsg("Aggiornato ✅");
+    } catch (e) {
+      setMsg(e?.message || "Errore aggiornamento.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function redeem(e) {
     e.preventDefault();
     setMsg("");
+
+    const code = redeemCode.trim();
+    if (!code) {
+      setMsg("Inserisci un codice voucher.");
+      return;
+    }
+
     try {
       setLoading(true);
-      await apiFetch("/vouchers/redeem", {
-        method: "POST",
-        body: JSON.stringify({ code: redeemCode }),
-      });
+
+      const endpoints = [
+        "/vouchers/redeem",
+        "/voucher/redeem",
+        "/wallet/redeem",
+        "/wallet/vouchers/redeem",
+        "/redeem",
+      ];
+
+      const payloads = [
+        JSON.stringify({ code }),
+        JSON.stringify({ voucher: code }),
+        JSON.stringify({ voucher_code: code }),
+        JSON.stringify({ redeemCode: code }),
+      ];
+
+      let done = false;
+      let lastErr = null;
+
+      for (const ep of endpoints) {
+        for (const body of payloads) {
+          try {
+            await apiFetch(ep, { method: "POST", body });
+            done = true;
+            break;
+          } catch (err) {
+            lastErr = err;
+            // se l'endpoint non esiste, passa subito al prossimo endpoint
+            if (isNotFound(err)) break;
+          }
+        }
+        if (done) break;
+      }
+
+      if (!done) throw lastErr || new Error("Not found");
+
       setRedeemCode("");
-
-      const data = await apiFetch("/wallet");
-      setWallet(Number(data?.wallet_cents || 0));
-
-      setMsg("Voucher riscattato ✅");
+      await loadWallet();
       await refresh();
+      setMsg("Voucher riscattato ✅");
     } catch (err) {
       setMsg(err?.message || "Errore nel riscatto voucher.");
     } finally {
@@ -54,12 +112,54 @@ export default function ProfilePage() {
     setMsg("");
     try {
       setLoading(true);
+
       const baseUrl = window.location.origin;
-      const data = await apiFetch("/stripe/connect/onboard", {
-        method: "POST",
-        body: JSON.stringify({ baseUrl }),
-      });
-      window.location.href = data.url;
+
+      const endpoints = [
+        "/stripe/connect/onboard",
+        "/stripe/onboard",
+        "/stripe/connect/onboarding",
+        "/stripe/onboarding",
+        "/payments/stripe/onboard",
+        "/payments/onboard",
+      ];
+
+      const payloads = [
+        JSON.stringify({ baseUrl }),
+        JSON.stringify({ base_url: baseUrl }),
+        JSON.stringify({ returnUrl: baseUrl }),
+        JSON.stringify({ return_url: baseUrl }),
+      ];
+
+      let lastErr = null;
+
+      for (const ep of endpoints) {
+        for (const body of payloads) {
+          try {
+            const data = await apiFetch(ep, { method: "POST", body });
+            const url =
+              data?.url ||
+              data?.onboarding_url ||
+              data?.account_link_url ||
+              data?.link ||
+              data?.redirect_url;
+
+            if (url) {
+              window.location.href = url;
+              return;
+            }
+
+            await refresh();
+            setMsg("Onboarding avviato ✅");
+            return;
+          } catch (err) {
+            lastErr = err;
+            if (isNotFound(err)) break;
+          }
+        }
+      }
+
+      throw lastErr || new Error("Not found");
     } catch (err) {
       setMsg(err?.message || "Errore nell'apertura onboarding Stripe.");
     } finally {
@@ -103,7 +203,7 @@ export default function ProfilePage() {
           <div><strong>Stripe Connect</strong>: {user.stripe_account_id ? "attivo" : "non attivo"}</div>
 
           <div className="row">
-            <button onClick={refresh} disabled={loading}>Aggiorna</button>
+            <button onClick={doRefresh} disabled={loading}>Aggiorna</button>
             <button className="ghost" onClick={logout} disabled={loading}>Esci</button>
           </div>
 

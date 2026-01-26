@@ -17,56 +17,8 @@ function readToken() {
   }
 }
 
-function normId(x) {
+function getId(x) {
   return x == null ? "" : String(x);
-}
-
-function clip(s, n = 180) {
-  const t = String(s || "").trim();
-  if (!t) return "";
-  return t.length > n ? `${t.slice(0, n).trim()}…` : t;
-}
-
-function pickRequestId(r) {
-  return (
-    r?.id ||
-    r?._id ||
-    r?.requestId ||
-    r?.request_id ||
-    r?.requestID ||
-    r?.uuid ||
-    null
-  );
-}
-
-function pickCity(r) {
-  return (
-    r?.city ||
-    r?.city_name ||
-    r?.town ||
-    r?.location?.city ||
-    r?.address?.city ||
-    r?.place?.city ||
-    ""
-  );
-}
-
-function pickDesc(r) {
-  return r?.description || r?.desc || r?.text || r?.details || "";
-}
-
-async function tryFetchMe() {
-  try {
-    const a = await apiFetch("/me");
-    return a?.user || a?.me || a?.item || a?.data || a;
-  } catch {
-    try {
-      const b = await apiFetch("/users/me");
-      return b?.user || b?.me || b?.item || b?.data || b;
-    } catch {
-      return null;
-    }
-  }
 }
 
 export default function RequestsPage() {
@@ -75,14 +27,10 @@ export default function RequestsPage() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
-  const [me, setMe] = useState(null);
+  const [isLogged, setIsLogged] = useState(false);
 
   useEffect(() => {
-    if (!readToken()) return;
-    (async () => {
-      const u = await tryFetchMe();
-      if (u?.id) setMe(u);
-    })();
+    setIsLogged(!!readToken());
   }, []);
 
   async function load() {
@@ -126,57 +74,31 @@ export default function RequestsPage() {
   async function accept(r) {
     setMsg("");
 
-    const token = readToken();
-    if (!token) {
+    if (!readToken()) {
       router.push("/login");
       return;
     }
 
-    const requestId = pickRequestId(r);
-    if (!requestId) {
-      setMsg("ID richiesta mancante (campo id/_id/requestId)." );
-      return;
-    }
-
-    let helperId = me?.id;
-    if (!helperId) {
-      const u = await tryFetchMe();
-      if (u?.id) {
-        setMe(u);
-        helperId = u.id;
-      }
-    }
-
-    if (!helperId) {
-      setMsg("helperId non disponibile: fai login e riprova.");
-      return;
-    }
-
     try {
+      // 1) tentativo principale: POST /matches
       let data;
       try {
         data = await apiFetch("/matches", {
           method: "POST",
-          body: {
-            requestId,
-            request_id: requestId,
-            helperId,
-            helper_id: helperId,
-          },
+          body: { requestId: r.id, request_id: r.id },
         });
       } catch (e) {
         const m = String(e?.message || "").toLowerCase();
+        // 2) fallback: alcuni backend usano /requests/:id/accept
         if (m.includes("not found") || m.includes("404")) {
-          data = await apiFetch(`/requests/${requestId}/accept`, {
-            method: "POST",
-            body: { helperId, helper_id: helperId },
-          });
+          data = await apiFetch(`/requests/${r.id}/accept`, { method: "POST" });
         } else {
           throw e;
         }
       }
 
       const matchId = extractMatchId(data);
+
       if (matchId) {
         router.push(`/chat/${matchId}`);
         return;
@@ -203,10 +125,7 @@ export default function RequestsPage() {
           {msg}{" "}
           {String(msg).toLowerCase().includes("token") && (
             <>
-              <Link href="/login" className="lnk">
-                Vai al login
-              </Link>
-              .
+              <Link href="/login" className="lnk">Vai al login</Link>.
             </>
           )}
         </p>
@@ -217,53 +136,42 @@ export default function RequestsPage() {
       )}
 
       <div className="list">
-        {requests.map((r) => {
-          const id = pickRequestId(r);
-          return (
-            <article key={normId(id) || normId(r?.title) || Math.random()} className="card">
-              <div className="cardTop">
-                <h2>{r.title || "Richiesta"}</h2>
-                <span className={`badge ${String(r.status || "open").toLowerCase()}`}>
-                  {r.status || "open"}
-                </span>
-              </div>
+        {requests.map((r) => (
+          <article key={getId(r.id)} className="card">
+            <div className="cardTop">
+              <h2>{r.title || "Richiesta"}</h2>
+              <span className={`badge ${String(r.status || "open").toLowerCase()}`}>
+                {r.status || "open"}
+              </span>
+            </div>
 
-              {pickCity(r) ? <p className="city">{pickCity(r)}</p> : null}
-              <p className="desc">{clip(pickDesc(r)) || "Apri i dettagli per vedere la descrizione."}</p>
+            {typeof r.city === "string" && r.city.trim() ? (
+              <p className="city">{r.city.trim()}</p>
+            ) : null}
+            <p className="desc">{r.description}</p>
 
-              <div className="row">
-                {id ? (
-                  <Link className="ghost" href={`/requests/${id}`}>
-                    Dettagli
-                  </Link>
-                ) : (
-                  <span className="ghost disabled">Dettagli</span>
-                )}
+            <div className="row">
+              <Link className="ghost" href={`/requests/${r.id}`}>
+                Dettagli
+              </Link>
 
-                <button className="btn" onClick={() => accept(r)} disabled={!canAccept(r) || !id}>
-                  Accetta
-                </button>
-              </div>
-            </article>
-          );
-        })}
+              <button
+                className="btn"
+                onClick={() => accept(r)}
+                disabled={!canAccept(r)}
+                title={!isLogged ? "Devi essere loggato" : ""}
+              >
+                Accetta
+              </button>
+            </div>
+          </article>
+        ))}
       </div>
 
       <style jsx>{`
-        .subtitle {
-          font-size: 14px;
-          opacity: 0.92;
-          margin-bottom: 14px;
-        }
-        .msg {
-          opacity: 0.95;
-          margin: 10px 0;
-        }
-        .lnk {
-          text-decoration: underline;
-          color: #a5f3fc;
-          font-weight: 800;
-        }
+        .subtitle { font-size: 14px; opacity: .92; margin-bottom: 14px; }
+        .msg { opacity: .95; margin: 10px 0; }
+        .lnk { text-decoration: underline; color: #a5f3fc; font-weight: 800; }
 
         .list {
           display: grid;
@@ -278,10 +186,7 @@ export default function RequestsPage() {
           padding: 14px 16px;
           transition: transform 0.12s ease, border-color 0.12s ease;
         }
-        .card:hover {
-          transform: translateY(-2px);
-          border-color: rgba(0, 180, 255, 0.5);
-        }
+        .card:hover { transform: translateY(-2px); border-color: rgba(0, 180, 255, 0.5); }
 
         .cardTop {
           display: flex;
@@ -290,22 +195,10 @@ export default function RequestsPage() {
           align-items: flex-start;
         }
 
-        h2 {
-          font-size: 16px;
-          margin: 0;
-          line-height: 1.2;
-        }
+        h2 { font-size: 16px; margin: 0; line-height: 1.2; }
 
-        .city {
-          margin: 8px 0 0;
-          font-size: 12px;
-          opacity: 0.85;
-        }
-        .desc {
-          font-size: 14px;
-          margin: 10px 0 12px;
-          opacity: 0.92;
-        }
+        .city { margin: 8px 0 0; font-size: 12px; opacity: 0.85; }
+        .desc { font-size: 14px; margin: 10px 0 12px; opacity: 0.92; }
 
         .badge {
           padding: 4px 10px;
@@ -316,12 +209,7 @@ export default function RequestsPage() {
           text-transform: lowercase;
         }
 
-        .row {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-          align-items: center;
-        }
+        .row { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
         .btn {
           border-radius: 999px;
@@ -332,10 +220,7 @@ export default function RequestsPage() {
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
-        .btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .ghost {
           border-radius: 999px;
@@ -347,10 +232,6 @@ export default function RequestsPage() {
           cursor: pointer;
           text-decoration: none;
           display: inline-block;
-        }
-        .ghost.disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
         }
       `}</style>
     </Layout>
