@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../lib/api";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import { AuthContext } from "../_app";
 
 function getToken() {
   if (typeof window === "undefined") return null;
   try {
+    // ✅ prima la chiave giusta
     return (
       localStorage.getItem("wetrust_token") ||
       localStorage.getItem("token") ||
@@ -17,101 +19,61 @@ function getToken() {
   }
 }
 
-function isNotFound(e) {
-  const msg = String(e?.message || "").toLowerCase();
-  return msg.includes("not found") || msg.includes("404");
-}
+async function apiAuthFetch(path, options = {}) {
+  const token = getToken();
+  const headers = { ...(options.headers || {}) };
 
-function pickCreatedAt(m) {
-  return m?.createdAt || m?.created_at || m?.ts || m?.time || null;
-}
-
-function cacheKey(matchId) {
-  return `wetrust_chat_cache_${matchId}`;
-}
-
-function loadCache(matchId) {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(cacheKey(matchId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
+  if (token && !headers.Authorization) {
+    headers.Authorization = `Bearer ${token}`;
   }
+
+  return apiFetch(path, { ...options, headers });
 }
 
-function saveCache(matchId, list) {
-  if (typeof window === "undefined") return;
-  try {
-    sessionStorage.setItem(cacheKey(matchId), JSON.stringify(list || []));
-  } catch {}
-}
+function messageOwner(m, me) {
+  const senderId =
+    m?.userId ||
+    m?.senderId ||
+    m?.fromUserId ||
+    m?.authorId ||
+    m?.from ||
+    m?.user_id;
 
-async function tryFetchMessages(matchId) {
-  try {
-    return await apiFetch(`/matches/${matchId}/messages`);
-  } catch (e) {
-    if (isNotFound(e)) {
-      try {
-        return await apiFetch(`/chat/${matchId}/messages`);
-      } catch (e2) {
-        if (!isNotFound(e2)) throw e2;
-      }
-      return await apiFetch(`/chats/${matchId}/messages`);
-    }
-    throw e;
-  }
-}
+  const isMe = me && senderId && String(senderId) === String(me.id);
 
-async function trySendMessage(matchId, text) {
-  try {
-    return await apiFetch(`/matches/${matchId}/messages`, {
-      method: "POST",
-      body: { text },
-    });
-  } catch (e) {
-    if (isNotFound(e)) {
-      try {
-        return await apiFetch(`/chat/${matchId}/messages`, {
-          method: "POST",
-          body: { text },
-        });
-      } catch (e2) {
-        if (!isNotFound(e2)) throw e2;
-      }
-      return await apiFetch(`/chats/${matchId}/messages`, {
-        method: "POST",
-        body: { text },
-      });
-    }
-    throw e;
-  }
+  const phone =
+    m?.phone ||
+    m?.fromPhone ||
+    m?.senderPhone ||
+    m?.userPhone ||
+    m?.from_phone ||
+    m?.sender_phone;
+
+  const displayNumber = isMe
+    ? (me.phone || me.email || me.id || "—")
+    : (phone || (senderId ? String(senderId) : "—"));
+
+  return { label: isMe ? "Tu" : "Utente", number: displayNumber };
 }
 
 export default function ChatRoom() {
   const router = useRouter();
   const { id } = router.query;
 
+  const auth = useContext(AuthContext) || {};
+  const user = auth.user ?? auth[0] ?? null;
+  const ready = auth.ready ?? auth[2] ?? false;
+
   const [list, setList] = useState([]);
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
   const [noAuth, setNoAuth] = useState(false);
-  const endRef = useRef(null);
-
-  // ✅ ripristina chat dalla memoria quando rientri
-  useEffect(() => {
-    if (!id) return;
-    const cached = loadCache(id);
-    if (cached && cached.length) setList(cached);
-    // non tocchiamo err qui
-  }, [id]);
 
   async function load() {
     if (!id) return;
 
-    if (!getToken()) {
+    const token = getToken();
+    if (!token) {
       setNoAuth(true);
       setErr("Devi accedere per usare la chat (token mancante).");
       return;
@@ -119,15 +81,10 @@ export default function ChatRoom() {
 
     try {
       setNoAuth(false);
-      const data = await tryFetchMessages(id);
-      const msgs = data?.messages || data?.items || data?.list || [];
-      const arr = Array.isArray(msgs) ? msgs : [];
-      setList(arr);
-      saveCache(id, arr);
+      const data = await apiAuthFetch(`/matches/${id}/messages`);
+      setList(data.messages || []);
       setErr("");
     } catch (e) {
-      // ✅ richiesto: niente "Not found" sopra il box di scrittura
-      if (isNotFound(e)) return;
       setErr(e?.message || "Errore nel caricamento messaggi");
     }
   }
@@ -135,9 +92,11 @@ export default function ChatRoom() {
   useEffect(() => {
     if (!id) return;
 
+    // appena entri e hai token, carica subito
     load();
 
     const t = setInterval(() => {
+      // evita loop inutile se non loggato
       if (!getToken()) return;
       load();
     }, 2500);
@@ -147,36 +106,35 @@ export default function ChatRoom() {
   }, [id]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [list.length]);
+    // se fai login mentre sei già in chat, riprova automaticamente
+    if (!ready) return;
+    if (!user) return;
+    if (getToken()) {
+      setNoAuth(false);
+      load();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, user]);
 
   async function send(e) {
     e.preventDefault();
-    const v = text.trim();
-    if (!v) return;
+    if (!text.trim()) return;
 
-    if (!getToken()) {
+    const token = getToken();
+    if (!token) {
       setNoAuth(true);
       setErr("Devi accedere per inviare messaggi (token mancante).");
       return;
     }
 
     try {
-      // ottimistico + cache (così non si azzera quando torni indietro)
-      const optimistic = {
-        id: `tmp-${Date.now()}`,
-        text: v,
-        createdAt: new Date().toISOString(),
-      };
-      const next = [...list, optimistic];
-      setList(next);
-      saveCache(id, next);
-
-      await trySendMessage(id, v);
+      await apiAuthFetch(`/matches/${id}/messages`, {
+        method: "POST",
+        body: { text: text.trim() }, // ✅ oggetto, non JSON.stringify
+      });
       setText("");
       await load();
     } catch (e2) {
-      if (isNotFound(e2)) return; // non mostrare 404
       setErr(e2?.message || "Errore invio messaggio");
     }
   }
@@ -192,7 +150,10 @@ export default function ChatRoom() {
           {err}{" "}
           {noAuth && (
             <>
-              <Link href="/login" className="lnk">Vai al login</Link>.
+              <Link href="/login" className="lnk">
+                Vai al login
+              </Link>
+              .
             </>
           )}
         </p>
@@ -201,15 +162,19 @@ export default function ChatRoom() {
       <div className="wrap">
         <div className="box">
           {empty && <p className="muted">Nessun messaggio ancora. Scrivi tu per primo.</p>}
-          {list.map((m, i) => (
-            <div key={m.id || `${pickCreatedAt(m) || "t"}-${i}`} className="msg">
-              <div className="meta">
-                {pickCreatedAt(m) ? new Date(pickCreatedAt(m)).toLocaleString() : ""}
-              </div>
+          {list.map((m) => (
+            <div key={m.id} className="msg">
+              {(() => {
+                const o = messageOwner(m, user);
+                return (
+                  <div className="meta">
+                    {new Date(m.createdAt).toLocaleString()} • {o.label}: {o.number}
+                  </div>
+                );
+              })()}
               <div className="txt">{m.text}</div>
             </div>
           ))}
-          <div ref={endRef} />
         </div>
 
         <form className="form" onSubmit={send}>
@@ -219,18 +184,13 @@ export default function ChatRoom() {
             placeholder="Scrivi un messaggio…"
             disabled={noAuth}
           />
-          <button disabled={noAuth || !text.trim()}>Invia</button>
+          <button disabled={noAuth}>Invia</button>
         </form>
-
-        <p style={{ marginTop: 10 }}>
-          <Link href="/chats" className="back">← Torna alle chat</Link>
-        </p>
       </div>
 
       <style jsx>{`
         .err { opacity: .95; }
         .lnk { text-decoration: underline; color: #a5f3fc; font-weight: 700; }
-        .back { text-decoration: underline; color: #a5f3fc; font-weight: 800; }
         .wrap { max-width: 820px; }
         .box {
           background: rgba(15, 23, 42, 0.95);
@@ -249,9 +209,13 @@ export default function ChatRoom() {
           background: rgba(2, 6, 23, 0.35);
         }
         .meta { opacity: .7; font-size: 11px; margin-bottom: 4px; }
-        .txt { font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+        .txt { font-size: 14px; }
 
-        .form { margin-top: 10px; display: flex; gap: 8px; }
+        .form {
+          margin-top: 10px;
+          display: flex;
+          gap: 8px;
+        }
         input {
           flex: 1;
           border-radius: 999px;
@@ -270,7 +234,10 @@ export default function ChatRoom() {
           background: linear-gradient(135deg, #00b4ff, #00e0a0);
           color: #020617;
         }
-        button:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
+        button:disabled, input:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
       `}</style>
     </Layout>
   );

@@ -64,6 +64,18 @@ export default function App({ Component, pageProps }) {
     };
   }, [refresh]);
 
+  // ✅ Dopo login/verify (router.replace senza reload), ricarica subito /me per valorizzare user
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onAuth = () => {
+      refresh();
+    };
+
+    window.addEventListener("wetrust:auth", onAuth);
+    return () => window.removeEventListener("wetrust:auth", onAuth);
+  }, [refresh]);
+
   const authValue = useMemo(() => {
     // compat: array + proprietà
     const v = [user, setUser, ready];

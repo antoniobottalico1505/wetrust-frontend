@@ -10,9 +10,15 @@ const ENV_BASE =
   process.env.VITE_API_URL ||
   "";
 
+const API_FALLBACK =
+  process.env.NEXT_PUBLIC_API_FALLBACK ||
+  "https://wetrust-frontend.onrender.com";
+
+const HAS_ENV_BASE = !!ENV_BASE;
+
 const API_BASE =
   ENV_BASE ||
-  (typeof window !== "undefined" ? "/api" : "https://wetrust-frontend.onrender.com");
+  (typeof window !== "undefined" ? "/api" : API_FALLBACK);
 
 // --- Token helpers ---
 function readToken() {
@@ -98,10 +104,15 @@ export async function apiFetch(path, opts = {}) {
     body = undefined;
   }
 
-  const url =
-    typeof path === "string" && path.startsWith("http")
-      ? path
-      : joinUrl(API_BASE, path);
+  const isAbsolute = typeof path === "string" && path.startsWith("http");
+
+  const primaryUrl = isAbsolute ? path : joinUrl(API_BASE, path);
+  const fallbackUrl =
+    !isAbsolute && !HAS_ENV_BASE && API_BASE === "/api" && API_FALLBACK
+      ? joinUrl(API_FALLBACK, path)
+      : null;
+
+  let url = primaryUrl;
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -115,6 +126,18 @@ export async function apiFetch(path, opts = {}) {
       headers,
       signal: controller ? controller.signal : undefined,
     });
+
+    // ✅ fallback: se in produzione non hai rewrites /api e prendi 404, riprova sul backend assoluto
+    if (res && res.status === 404 && fallbackUrl) {
+      url = fallbackUrl;
+      res = await fetch(url, {
+        ...fetchOpts,
+        method,
+        body,
+        headers,
+        signal: controller ? controller.signal : undefined,
+      });
+    }
   } catch (e) {
     const aborted = controller && e && (e.name === "AbortError" || String(e).includes("AbortError"));
     throw new Error(

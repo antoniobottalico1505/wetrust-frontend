@@ -50,6 +50,9 @@ export default function LoginPage() {
 
       persistToken(token);
       setSession(token, data.user);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("wetrust:auth"));
+      }
 
       await router.replace("/");
     } catch (err) {
@@ -113,6 +116,9 @@ export default function LoginPage() {
 
       persistToken(token);
       setSession(token, data.user);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("wetrust:auth"));
+      }
 
       await router.replace("/");
     } catch (err) {
