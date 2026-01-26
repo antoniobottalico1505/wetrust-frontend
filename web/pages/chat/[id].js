@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../lib/api";
 import { useRouter } from "next/router";
@@ -17,21 +17,48 @@ function getToken() {
   }
 }
 
+function isNotFound(e) {
+  const msg = String(e?.message || "").toLowerCase();
+  return msg.includes("not found") || msg.includes("404");
+}
+
 function pickCreatedAt(m) {
   return m?.createdAt || m?.created_at || m?.ts || m?.time || null;
 }
 
+function cacheKey(matchId) {
+  return `wetrust_chat_cache_${matchId}`;
+}
+
+function loadCache(matchId) {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(cacheKey(matchId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCache(matchId, list) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(cacheKey(matchId), JSON.stringify(list || []));
+  } catch {}
+}
+
 async function tryFetchMessages(matchId) {
-  // endpoint principale
   try {
     return await apiFetch(`/matches/${matchId}/messages`);
   } catch (e) {
-    const msg = String(e?.message || "").toLowerCase();
-    if (msg.includes("not found") || msg.includes("404")) {
-      // fallback possibili
+    if (isNotFound(e)) {
       try {
         return await apiFetch(`/chat/${matchId}/messages`);
-      } catch {}
+      } catch (e2) {
+        if (!isNotFound(e2)) throw e2;
+      }
       return await apiFetch(`/chats/${matchId}/messages`);
     }
     throw e;
@@ -45,14 +72,15 @@ async function trySendMessage(matchId, text) {
       body: { text },
     });
   } catch (e) {
-    const msg = String(e?.message || "").toLowerCase();
-    if (msg.includes("not found") || msg.includes("404")) {
+    if (isNotFound(e)) {
       try {
         return await apiFetch(`/chat/${matchId}/messages`, {
           method: "POST",
           body: { text },
         });
-      } catch {}
+      } catch (e2) {
+        if (!isNotFound(e2)) throw e2;
+      }
       return await apiFetch(`/chats/${matchId}/messages`, {
         method: "POST",
         body: { text },
@@ -70,6 +98,15 @@ export default function ChatRoom() {
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
   const [noAuth, setNoAuth] = useState(false);
+  const endRef = useRef(null);
+
+  // ✅ ripristina chat dalla memoria quando rientri
+  useEffect(() => {
+    if (!id) return;
+    const cached = loadCache(id);
+    if (cached && cached.length) setList(cached);
+    // non tocchiamo err qui
+  }, [id]);
 
   async function load() {
     if (!id) return;
@@ -84,15 +121,13 @@ export default function ChatRoom() {
       setNoAuth(false);
       const data = await tryFetchMessages(id);
       const msgs = data?.messages || data?.items || data?.list || [];
-      setList(Array.isArray(msgs) ? msgs : []);
+      const arr = Array.isArray(msgs) ? msgs : [];
+      setList(arr);
+      saveCache(id, arr);
       setErr("");
     } catch (e) {
-      const m = String(e?.message || "").toLowerCase();
-      // Se l'API risponde 404/Not found ma l'invio funziona, non sporcare la UI
-      if (m.includes("not found") || m.includes("404")) {
-        setErr("");
-        return;
-      }
+      // ✅ richiesto: niente "Not found" sopra il box di scrittura
+      if (isNotFound(e)) return;
       setErr(e?.message || "Errore nel caricamento messaggi");
     }
   }
@@ -111,6 +146,10 @@ export default function ChatRoom() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [list.length]);
+
   async function send(e) {
     e.preventDefault();
     const v = text.trim();
@@ -123,16 +162,21 @@ export default function ChatRoom() {
     }
 
     try {
+      // ottimistico + cache (così non si azzera quando torni indietro)
+      const optimistic = {
+        id: `tmp-${Date.now()}`,
+        text: v,
+        createdAt: new Date().toISOString(),
+      };
+      const next = [...list, optimistic];
+      setList(next);
+      saveCache(id, next);
+
       await trySendMessage(id, v);
       setText("");
       await load();
     } catch (e2) {
-      const m = String(e2?.message || "").toLowerCase();
-      // Non mostrare 404/Not found: spesso è solo un endpoint alternativo mancante
-      if (m.includes("not found") || m.includes("404")) {
-        setErr("");
-        return;
-      }
+      if (isNotFound(e2)) return; // non mostrare 404
       setErr(e2?.message || "Errore invio messaggio");
     }
   }
@@ -165,6 +209,7 @@ export default function ChatRoom() {
               <div className="txt">{m.text}</div>
             </div>
           ))}
+          <div ref={endRef} />
         </div>
 
         <form className="form" onSubmit={send}>
@@ -174,7 +219,7 @@ export default function ChatRoom() {
             placeholder="Scrivi un messaggio…"
             disabled={noAuth}
           />
-          <button disabled={noAuth}>Invia</button>
+          <button disabled={noAuth || !text.trim()}>Invia</button>
         </form>
 
         <p style={{ marginTop: 10 }}>
@@ -204,7 +249,7 @@ export default function ChatRoom() {
           background: rgba(2, 6, 23, 0.35);
         }
         .meta { opacity: .7; font-size: 11px; margin-bottom: 4px; }
-        .txt { font-size: 14px; }
+        .txt { font-size: 14px; white-space: pre-wrap; word-break: break-word; }
 
         .form { margin-top: 10px; display: flex; gap: 8px; }
         input {

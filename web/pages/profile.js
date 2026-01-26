@@ -8,6 +8,35 @@ function isNotFound(err) {
   return m.includes("not found") || m.includes("404");
 }
 
+function pickUrl(data) {
+  if (!data) return "";
+  return (
+    data.url ||
+    data.onboarding_url ||
+    data.onboardingUrl ||
+    data.account_link_url ||
+    data.accountLinkUrl ||
+    data.link ||
+    data.redirect_url ||
+    data.redirectUrl ||
+    ""
+  );
+}
+
+async function tryCalls(calls) {
+  let last = null;
+  for (const fn of calls) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      if (isNotFound(e)) continue;
+      throw e;
+    }
+  }
+  throw last || new Error("Not found");
+}
+
 export default function ProfilePage() {
   const auth = useContext(AuthContext) || {};
   const user = auth.user ?? auth[0] ?? null;
@@ -42,8 +71,8 @@ export default function ProfilePage() {
       await refresh();
       await loadWallet();
       setMsg("Aggiornato ✅");
-    } catch (e) {
-      setMsg(e?.message || "Errore aggiornamento.");
+    } catch (err) {
+      setMsg(err?.message || "Errore aggiornamento.");
     } finally {
       setLoading(false);
     }
@@ -62,40 +91,15 @@ export default function ProfilePage() {
     try {
       setLoading(true);
 
-      const endpoints = [
-        "/vouchers/redeem",
-        "/voucher/redeem",
-        "/wallet/redeem",
-        "/wallet/vouchers/redeem",
-        "/redeem",
-      ];
-
-      const payloads = [
-        JSON.stringify({ code }),
-        JSON.stringify({ voucher: code }),
-        JSON.stringify({ voucher_code: code }),
-        JSON.stringify({ redeemCode: code }),
-      ];
-
-      let done = false;
-      let lastErr = null;
-
-      for (const ep of endpoints) {
-        for (const body of payloads) {
-          try {
-            await apiFetch(ep, { method: "POST", body });
-            done = true;
-            break;
-          } catch (err) {
-            lastErr = err;
-            // se l'endpoint non esiste, passa subito al prossimo endpoint
-            if (isNotFound(err)) break;
-          }
-        }
-        if (done) break;
-      }
-
-      if (!done) throw lastErr || new Error("Not found");
+      // ✅ prova endpoint realistici (se il backend ne espone uno, ora funziona)
+      await tryCalls([
+        () => apiFetch("/vouchers/redeem", { method: "POST", body: { code } }),
+        () => apiFetch("/vouchers/redeem", { method: "POST", body: JSON.stringify({ code }) }),
+        () => apiFetch("/wallet/redeem", { method: "POST", body: { code } }),
+        () => apiFetch("/wallet/redeem", { method: "POST", body: JSON.stringify({ code }) }),
+        () => apiFetch("/voucher/redeem", { method: "POST", body: { code } }),
+        () => apiFetch("/redeem", { method: "POST", body: { code } }),
+      ]);
 
       setRedeemCode("");
       await loadWallet();
@@ -112,54 +116,26 @@ export default function ProfilePage() {
     setMsg("");
     try {
       setLoading(true);
-
       const baseUrl = window.location.origin;
 
-      const endpoints = [
-        "/stripe/connect/onboard",
-        "/stripe/onboard",
-        "/stripe/connect/onboarding",
-        "/stripe/onboarding",
-        "/payments/stripe/onboard",
-        "/payments/onboard",
-      ];
+      const data = await tryCalls([
+        () => apiFetch("/stripe/connect/onboard", { method: "POST", body: { baseUrl } }),
+        () => apiFetch("/stripe/connect/onboard", { method: "POST", body: JSON.stringify({ baseUrl }) }),
+        () => apiFetch("/stripe/connect/onboarding", { method: "POST", body: { baseUrl } }),
+        () => apiFetch("/stripe/onboard", { method: "POST", body: { baseUrl } }),
+        // fallback GET (alcuni backend usano querystring)
+        () => apiFetch(`/stripe/connect/onboard?baseUrl=${encodeURIComponent(baseUrl)}`),
+        () => apiFetch(`/stripe/onboard?baseUrl=${encodeURIComponent(baseUrl)}`),
+      ]);
 
-      const payloads = [
-        JSON.stringify({ baseUrl }),
-        JSON.stringify({ base_url: baseUrl }),
-        JSON.stringify({ returnUrl: baseUrl }),
-        JSON.stringify({ return_url: baseUrl }),
-      ];
-
-      let lastErr = null;
-
-      for (const ep of endpoints) {
-        for (const body of payloads) {
-          try {
-            const data = await apiFetch(ep, { method: "POST", body });
-            const url =
-              data?.url ||
-              data?.onboarding_url ||
-              data?.account_link_url ||
-              data?.link ||
-              data?.redirect_url;
-
-            if (url) {
-              window.location.href = url;
-              return;
-            }
-
-            await refresh();
-            setMsg("Onboarding avviato ✅");
-            return;
-          } catch (err) {
-            lastErr = err;
-            if (isNotFound(err)) break;
-          }
-        }
+      const url = pickUrl(data);
+      if (url) {
+        window.location.href = url;
+        return;
       }
 
-      throw lastErr || new Error("Not found");
+      await refresh();
+      setMsg("Attivazione pagamenti avviata ✅");
     } catch (err) {
       setMsg(err?.message || "Errore nell'apertura onboarding Stripe.");
     } finally {

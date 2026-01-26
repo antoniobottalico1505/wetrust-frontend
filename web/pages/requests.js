@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import Link from "next/link";
 import { useRouter } from "next/router";
+import { AuthContext } from "./_app";
 
 function readToken() {
   if (typeof window === "undefined") return null;
@@ -17,21 +18,55 @@ function readToken() {
   }
 }
 
-function getId(x) {
+function normId(x) {
   return x == null ? "" : String(x);
+}
+
+function getRequestId(r) {
+  return normId(r?.id || r?._id || r?.requestId || r?.request_id);
+}
+
+function cleanCity(city) {
+  return typeof city === "string" ? city.trim() : "";
+}
+
+function clip(s, n = 180) {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  return t.length > n ? `${t.slice(0, n).trim()}…` : t;
 }
 
 export default function RequestsPage() {
   const router = useRouter();
+  const auth = useContext(AuthContext) || {};
+  const ctxUser = auth.user ?? auth[0] ?? null;
 
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
   const [isLogged, setIsLogged] = useState(false);
+  const [meId, setMeId] = useState(ctxUser?.id ? normId(ctxUser.id) : "");
 
   useEffect(() => {
     setIsLogged(!!readToken());
   }, []);
+
+  useEffect(() => {
+    if (ctxUser?.id) setMeId(normId(ctxUser.id));
+  }, [ctxUser?.id]);
+
+  async function ensureMeId() {
+    if (meId) return meId;
+    try {
+      const data = await apiFetch("/me");
+      const u = data?.user || data?.me || data?.item || data?.data || data || null;
+      const id = u?.id ? normId(u.id) : "";
+      if (id) setMeId(id);
+      return id;
+    } catch {
+      return "";
+    }
+  }
 
   async function load() {
     setMsg("");
@@ -79,19 +114,39 @@ export default function RequestsPage() {
       return;
     }
 
+    const requestId = getRequestId(r);
+    if (!requestId) {
+      setMsg("Errore: id richiesta mancante.");
+      return;
+    }
+
+    const helperId = await ensureMeId();
+    if (!helperId) {
+      setMsg("Errore: helperId mancante (ripeti dopo login).");
+      return;
+    }
+
     try {
       // 1) tentativo principale: POST /matches
       let data;
       try {
         data = await apiFetch("/matches", {
           method: "POST",
-          body: { requestId: r.id, request_id: r.id },
+          body: {
+            requestId,
+            helperId,
+            request_id: requestId,
+            helper_id: helperId,
+          },
         });
       } catch (e) {
         const m = String(e?.message || "").toLowerCase();
         // 2) fallback: alcuni backend usano /requests/:id/accept
         if (m.includes("not found") || m.includes("404")) {
-          data = await apiFetch(`/requests/${r.id}/accept`, { method: "POST" });
+          data = await apiFetch(`/requests/${requestId}/accept`, {
+            method: "POST",
+            body: { helperId, helper_id: helperId },
+          });
         } else {
           throw e;
         }
@@ -136,36 +191,38 @@ export default function RequestsPage() {
       )}
 
       <div className="list">
-        {requests.map((r) => (
-          <article key={getId(r.id)} className="card">
-            <div className="cardTop">
-              <h2>{r.title || "Richiesta"}</h2>
-              <span className={`badge ${String(r.status || "open").toLowerCase()}`}>
-                {r.status || "open"}
-              </span>
-            </div>
+        {requests.map((r) => {
+          const rid = getRequestId(r);
+          const city = cleanCity(r?.city);
+          return (
+            <article key={rid || normId(r?.id) || Math.random()} className="card">
+              <div className="cardTop">
+                <h2>{r.title || "Richiesta"}</h2>
+                <span className={`badge ${String(r.status || "open").toLowerCase()}`}>
+                  {r.status || "open"}
+                </span>
+              </div>
 
-            {typeof r.city === "string" && r.city.trim() ? (
-              <p className="city">{r.city.trim()}</p>
-            ) : null}
-            <p className="desc">{r.description}</p>
+              {city ? <p className="city">{city}</p> : null}
+              <p className="desc">{clip(r.description) || "Apri i dettagli per vedere la descrizione."}</p>
 
-            <div className="row">
-              <Link className="ghost" href={`/requests/${r.id}`}>
-                Dettagli
-              </Link>
+              <div className="row">
+                <Link className="ghost" href={`/requests/${rid}`}>
+                  Dettagli
+                </Link>
 
-              <button
-                className="btn"
-                onClick={() => accept(r)}
-                disabled={!canAccept(r)}
-                title={!isLogged ? "Devi essere loggato" : ""}
-              >
-                Accetta
-              </button>
-            </div>
-          </article>
-        ))}
+                <button
+                  className="btn"
+                  onClick={() => accept(r)}
+                  disabled={!canAccept(r)}
+                  title={!isLogged ? "Devi essere loggato" : ""}
+                >
+                  Accetta
+                </button>
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       <style jsx>{`

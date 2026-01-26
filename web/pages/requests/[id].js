@@ -193,13 +193,13 @@ export default function RequestDetailPage() {
       try {
         data = await apiFetch("/matches", {
           method: "POST",
-          body: { requestId: id, request_id: id },
+          body: { requestId: id, helperId: user?.id, request_id: id, helper_id: user?.id },
         });
       } catch (e) {
         const m = String(e?.message || "").toLowerCase();
         if (m.includes("not found") || m.includes("404")) {
           // 2) fallback /requests/:id/accept
-          data = await apiFetch(`/requests/${id}/accept`, { method: "POST" });
+          data = await apiFetch(`/requests/${id}/accept`, { method: "POST", body: { helperId: user?.id, helper_id: user?.id } });
         } else {
           throw e;
         }
@@ -268,6 +268,15 @@ export default function RequestDetailPage() {
       {loading && <p>Caricamento…</p>}
       {msg && <p className="msgTop">{msg}</p>}
 
+      {!loading && !reqData && (
+        <div style={{ padding: "10px 0" }}>
+          <p>Dettagli non disponibili (richiesta non trovata).</p>
+          <p style={{ marginTop: 10 }}>
+            <Link href="/requests" className="ghost">← Torna alle richieste</Link>
+          </p>
+        </div>
+      )}
+
       {!loading && reqData && (
         <>
           <div className="top">
@@ -275,9 +284,7 @@ export default function RequestDetailPage() {
               <h1>{reqData.title}</h1>
               <p className="desc">{reqData.description}</p>
               <div className="meta">
-                {typeof reqData.city === "string" && reqData.city.trim() ? (
-                  <span>{reqData.city.trim()}</span>
-                ) : null}
+                {typeof reqData.city === "string" && reqData.city.trim() ? <span>{reqData.city.trim()}</span> : null}
                 <span className="badge">{reqData.status || "open"}</span>
               </div>
               <p style={{ marginTop: 10 }}>
@@ -296,6 +303,19 @@ export default function RequestDetailPage() {
                 <Link href={`/chat/${match.id}`} className="btn ghost">Apri chat</Link>
               )}
             </div>
+
+<div className="card" style={{ marginTop: 12 }}>
+  <h3>Dettagli richiesta</h3>
+  <p className="line"><strong>ID:</strong> {reqData.id || reqData._id || id}</p>
+  <p className="line"><strong>Stato:</strong> {reqData.status || "open"}</p>
+  {typeof reqData.city === "string" && reqData.city.trim() ? (
+    <p className="line"><strong>Città:</strong> {reqData.city.trim()}</p>
+  ) : null}
+  {reqData.createdAt || reqData.created_at ? (
+    <p className="line"><strong>Creato:</strong> {new Date(reqData.createdAt || reqData.created_at).toLocaleString()}</p>
+  ) : null}
+</div>
+
           </div>
 
           {match?.id && (
