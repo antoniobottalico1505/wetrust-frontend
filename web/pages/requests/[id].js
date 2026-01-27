@@ -1,3 +1,5 @@
+// web/pages/requests/[id].js
+
 import { useContext, useEffect, useMemo, useState } from "react";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../lib/api";
@@ -157,7 +159,7 @@ export default function RequestDetail({ id }) {
     }
   }
 
-  // ✅ prezzo lo imposta l'helper
+  // helper imposta prezzo
   async function setPrice() {
     setMsg("");
     if (!match?.id) return setMsg("Match non valido.");
@@ -179,7 +181,7 @@ export default function RequestDetail({ id }) {
     }
   }
 
-  // ✅ paga il richiedente
+  // paga richiedente (carta o voucher)
   async function startPay(useWallet) {
     setMsg("");
     if (!match?.id) return setMsg("Match non valido.");
@@ -240,7 +242,6 @@ export default function RequestDetail({ id }) {
 
       {!loading && reqData && (
         <>
-          {/* card stile /requests */}
           <div className="list">
             <article className="card2">
               <h2>{reqData.title}</h2>
@@ -251,8 +252,8 @@ export default function RequestDetail({ id }) {
                 <span className="badge">{reqData.status}</span>
 
                 {!ready ? null : !user ? (
-                  <Link href="/login" className="btn2">
-                    Accedi via SMS
+                  <Link href="/login" legacyBehavior>
+                    <a className="btn2">Accedi via SMS</a>
                   </Link>
                 ) : !match && String(user.id) !== String(reqData.userId) ? (
                   <button type="button" className="btn2" onClick={accept}>
@@ -261,13 +262,13 @@ export default function RequestDetail({ id }) {
                 ) : null}
 
                 {match ? (
-                  <Link href={`/chat/${match.id}`} className="ghost">
-                    Apri chat
+                  <Link href={`/chat/${match.id}`} legacyBehavior>
+                    <a className="ghost">Apri chat</a>
                   </Link>
                 ) : null}
 
-                <Link href="/requests" className="ghost">
-                  Torna alle richieste
+                <Link href="/requests" legacyBehavior>
+                  <a className="ghost">Torna alle richieste</a>
                 </Link>
               </div>
             </article>
@@ -281,14 +282,14 @@ export default function RequestDetail({ id }) {
                   <strong>Status:</strong> {match.status || "—"}
                 </p>
                 <p className="line">
-                  <strong>Prezzo:</strong> {match.price_cents ? centsToEUR(match.price_cents) : "non impostato"}
+                  <strong>Prezzo:</strong>{" "}
+                  {match.price_cents ? centsToEUR(match.price_cents) : "non impostato"}
                 </p>
                 <p className="line">
                   <strong>Fee WeTrust:</strong> {match.fee_cents ? centsToEUR(match.fee_cents) : "—"}
                 </p>
                 <p className="hint">Il denaro viene bloccato e rilasciato solo con conferma del richiedente.</p>
 
-                {/* helper imposta prezzo */}
                 {user && String(user.id) === String(match.helperId) && (
                   <div className="row">
                     <input
@@ -302,7 +303,6 @@ export default function RequestDetail({ id }) {
                   </div>
                 )}
 
-                {/* richiedente paga e rilascia */}
                 {user && String(user.id) === String(match.userId) && (
                   <>
                     <div className="row">
@@ -331,8 +331,9 @@ export default function RequestDetail({ id }) {
                 <div className="card">
                   <h3>Pagamento</h3>
                   <p className="hint">
-                    Per il checkout Stripe serve impostare <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> sul web e
-                    togliere <code>MOCK_STRIPE</code> sull’API.
+                    Per il checkout Stripe serve impostare{" "}
+                    <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> sul web e togliere{" "}
+                    <code>MOCK_STRIPE</code> sull’API.
                   </p>
                 </div>
               )}
