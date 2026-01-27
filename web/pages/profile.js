@@ -48,6 +48,8 @@ export default function ProfilePage() {
   const [wallet, setWallet] = useState(0);
   const [redeemCode, setRedeemCode] = useState("");
   const [loading, setLoading] = useState(false);
+const data = await apiFetch("/stripe/connect/onboard", { method: "POST", body: { baseUrl: window.location.origin } });
+window.location.href = data.url;
 
   async function loadWallet() {
     try {
