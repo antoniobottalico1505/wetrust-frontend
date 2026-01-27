@@ -3,6 +3,26 @@ import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import { AuthContext } from "./_app";
 
+function getToken() {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      localStorage.getItem("wetrust_token") ||
+      localStorage.getItem("token") ||
+      sessionStorage.getItem("token")
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function apiAuthFetch(path, options = {}) {
+  const token = getToken();
+  const headers = { ...(options.headers || {}) };
+  if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
+  return apiFetch(path, { ...options, headers });
+}
+
 function isNotFound(err) {
   const m = String(err?.message || "").toLowerCase();
   return m.includes("not found") || m.includes("404");
@@ -53,7 +73,7 @@ window.location.href = data.url;
 
   async function loadWallet() {
     try {
-      const data = await apiFetch("/wallet");
+      const data = await apiAuthFetch("/wallet");
       setWallet(Number(data?.wallet_cents || 0));
     } catch {
       setWallet(0);
@@ -95,12 +115,12 @@ window.location.href = data.url;
 
       // ✅ prova endpoint realistici (se il backend ne espone uno, ora funziona)
       await tryCalls([
-        () => apiFetch("/vouchers/redeem", { method: "POST", body: { code } }),
-        () => apiFetch("/vouchers/redeem", { method: "POST", body: JSON.stringify({ code }) }),
-        () => apiFetch("/wallet/redeem", { method: "POST", body: { code } }),
-        () => apiFetch("/wallet/redeem", { method: "POST", body: JSON.stringify({ code }) }),
-        () => apiFetch("/voucher/redeem", { method: "POST", body: { code } }),
-        () => apiFetch("/redeem", { method: "POST", body: { code } }),
+        () => apiAuthFetch("/vouchers/redeem", { method: "POST", body: { code } }),
+        () => apiAuthFetch("/vouchers/redeem", { method: "POST", body: JSON.stringify({ code }) }),
+        () => apiAuthFetch("/wallet/redeem", { method: "POST", body: { code } }),
+        () => apiAuthFetch("/wallet/redeem", { method: "POST", body: JSON.stringify({ code }) }),
+        () => apiAuthFetch("/voucher/redeem", { method: "POST", body: { code } }),
+        () => apiAuthFetch("/redeem", { method: "POST", body: { code } }),
       ]);
 
       setRedeemCode("");
@@ -143,7 +163,7 @@ window.location.href = data.url;
     for (const ep of endpoints) {
       for (const body of bodies) {
         try {
-          const data = await apiFetch(ep, { method: "POST", body });
+          const data = await apiAuthFetch(ep, { method: "POST", body });
 
           const url =
             data?.url ||
@@ -179,7 +199,7 @@ window.location.href = data.url;
 
       for (const u of urls) {
         try {
-          const data = await apiFetch(u);
+          const data = await apiAuthFetch(u);
 
           const url =
             data?.url ||
