@@ -183,6 +183,45 @@ app.post("/stripe/connect/onboard", { preHandler: [requireAuth] }, async (reques
   }
 });
 
+// GET variant (comodo per redirect / link esterni): stesso comportamento del POST
+app.get("/stripe/connect/onboard", { preHandler: [requireAuth] }, async (request, reply) => {
+  try {
+    if (!stripe) return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
+
+    const baseUrl =
+      (request.query && (request.query.baseUrl || request.query.base_url)) ||
+      process.env.FRONTEND_BASE_URL ||
+      "https://wetrust.club";
+
+    const user = users.find((u) => u.id === request.user.id);
+    if (!user) return reply.code(401).send({ ok: false, error: "Utente non trovato" });
+
+    let accountId = user.stripeAccountId;
+
+    if (!accountId) {
+      const acc = await stripe.accounts.create({
+        type: "express",
+        email: user.email || undefined,
+        capabilities: { transfers: { requested: true } },
+      });
+      accountId = acc.id;
+      user.stripeAccountId = accountId;
+    }
+
+    const link = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: `${baseUrl}/profile`,
+      return_url: `${baseUrl}/profile`,
+      type: "account_onboarding",
+    });
+
+    return reply.send({ ok: true, url: link.url, accountId });
+  } catch (e) {
+    request.log.error(e);
+    return reply.code(500).send({ ok: false, error: "Errore onboarding Stripe" });
+  }
+});
+
   // ---------- STREAM TOKEN ----------
   // Il frontend chiama /stream/token dopo login e ottiene apiKey + token.
   app.get("/stream/token", { preHandler: [requireAuth] }, async (request, reply) => {
