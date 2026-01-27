@@ -37,6 +37,30 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const STREAM_API_KEY = process.env.STREAM_API_KEY || "";
 const STREAM_API_SECRET = process.env.STREAM_API_SECRET || "";
+// ---------------- PAY CONFIG ----------------
+const PLATFORM_FEE_BPS = Number(process.env.PLATFORM_FEE_BPS || 1500); // 1500 = 15%
+const PLATFORM_FEE_FIXED_CENTS = Number(process.env.PLATFORM_FEE_FIXED_CENTS || 49); // 49 = €0,49
+const VOUCHERS_RAW = process.env.VOUCHERS || "TEST10:1000,TEST25:2500"; // CODE:cents,...
+const voucherMap = new Map(
+  VOUCHERS_RAW.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const [code, cents] = pair.split(":").map((x) => String(x || "").trim());
+      return [code.toUpperCase(), Number(cents || 0)];
+    })
+);
+const redeemedVouchers = new Set();
+
+function calcFeeCents(priceCents) {
+  const p = Number(priceCents || 0);
+  if (!p || p <= 0) return 0;
+
+  const percent = Math.round((p * PLATFORM_FEE_BPS) / 10000);
+  const fixed = Math.max(0, Number(PLATFORM_FEE_FIXED_CENTS || 0));
+
+  return Math.max(0, percent + fixed);
+}
 
 // ---------------- HELPERS ----------------
 function signToken(payload) {
@@ -142,6 +166,31 @@ const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACC
   app.get("/me", { preHandler: [requireAuth] }, async (request) => {
     return { ok: true, user: publicUser(request.user) };
   });
+
+// ---------- WALLET ----------
+app.get("/wallet", { preHandler: [requireAuth] }, async (request) => {
+  if (typeof request.user.walletCents !== "number") request.user.walletCents = 0;
+  return { ok: true, wallet_cents: request.user.walletCents };
+});
+
+// ---------- VOUCHERS ----------
+app.post("/vouchers/redeem", { preHandler: [requireAuth] }, async (request, reply) => {
+  const codeRaw = String(request.body?.code || "").trim();
+  if (!codeRaw) return reply.code(400).send({ ok: false, error: "Codice obbligatorio" });
+
+  const code = codeRaw.toUpperCase();
+  const cents = voucherMap.get(code);
+
+  if (!cents || cents <= 0) return reply.code(400).send({ ok: false, error: "Voucher non valido" });
+  if (redeemedVouchers.has(code)) return reply.code(400).send({ ok: false, error: "Voucher già usato" });
+
+  redeemedVouchers.add(code);
+
+  if (typeof request.user.walletCents !== "number") request.user.walletCents = 0;
+  request.user.walletCents += cents;
+
+  return reply.send({ ok: true, added_cents: cents, wallet_cents: request.user.walletCents });
+});
 
 // ---------- STRIPE CONNECT ONBOARDING ----------
 app.post("/stripe/connect/onboard", { preHandler: [requireAuth] }, async (request, reply) => {
@@ -259,6 +308,7 @@ app.get("/stripe/connect/onboard", { preHandler: [requireAuth] }, async (request
       passwordHash: await bcrypt.hash(String(password), 10),
       createdAt: new Date().toISOString(),
 stripeAccountId: null,
+walletCents: 0,
     };
     users.push(u);
 
@@ -353,6 +403,7 @@ app.post("/auth/sms/verify", async (request, reply) => {
           passwordHash: null,
           createdAt: new Date().toISOString(),
 stripeAccountId: null,
+walletCents: 0,
         };
         users.push(u);
       }
@@ -380,6 +431,8 @@ stripeAccountId: null,
       phone: cleanPhone,
       passwordHash: null,
       createdAt: new Date().toISOString(),
+stripeAccountId: null,
+  walletCents: 0,
     };
     users.push(u);
   }
@@ -434,6 +487,7 @@ stripeAccountId: null,
         passwordHash: null,
         createdAt: new Date().toISOString(),
 stripeAccountId: null,
+walletCents: 0,
       };
       users.push(u);
     }
@@ -470,8 +524,20 @@ app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) =
 
   const match = matches.find((m) => String(m.requestId) === String(reqItem.id)) || null;
 
+  // aggiorna status payment da Stripe (se presente)
+  if (match && stripe && match.payment_intent_id) {
+    try {
+      const pi = await stripe.paymentIntents.retrieve(match.payment_intent_id);
+      match.payment_status = pi.status;
+      if (typeof match.amount_cents !== "number") match.amount_cents = pi.amount;
+    } catch {
+      // ignore
+    }
+  }
+
   return reply.send({ ok: true, request: reqItem, match });
 });
+
 
 app.post("/requests/:id/accept", { preHandler: [requireAuth] }, async (request, reply) => {
   const { id } = request.params;
@@ -494,6 +560,18 @@ app.post("/requests/:id/accept", { preHandler: [requireAuth] }, async (request, 
     userId: reqItem.userId,              // requester
     helperId: String(request.user.id),   // chi accetta
     createdAt: new Date().toISOString(),
+ stripeAccountId: null,
+  walletCents: 0,
+
+status: "ACCEPTED",
+  price_cents: null,
+  fee_cents: null,
+  amount_cents: null,
+  payment_intent_id: null,
+  payment_status: null,
+  paid_with_wallet: false,
+  transfer_id: null,
+  releasedAt: null,
   };
 
   matches.push(m);
@@ -527,10 +605,210 @@ if (String(reqItem.userId) === String(helperId)) {
       userId: reqItem.userId,
       helperId: String(helperId),
       createdAt: new Date().toISOString(),
+ stripeAccountId: null,
+  walletCents: 0,
+
+status: "ACCEPTED",
+  price_cents: null,
+  fee_cents: null,
+  amount_cents: null,
+  payment_intent_id: null,
+  payment_status: null,
+  paid_with_wallet: false,
+  transfer_id: null,
+  releasedAt: null,
     };
     matches.push(m);
     return reply.send({ ok: true, item: m });
   });
+
+// ---------- MATCH: SET PRICE ----------
+app.post("/matches/:id/price", { preHandler: [requireAuth] }, async (request, reply) => {
+  const { id } = request.params;
+  const m = ensureMatchAccess(request, reply, String(id));
+  if (!m) return;
+
+  // solo helper può impostare prezzo
+  if (String(m.helperId) !== String(request.user.id)) {
+    return reply.code(403).send({ ok: false, error: "Solo l’helper può impostare il prezzo" });
+  }
+
+  const priceCents = Number(request.body?.price_cents || 0);
+  if (!priceCents || priceCents <= 0) return reply.code(400).send({ ok: false, error: "Prezzo non valido" });
+
+  const feeCents = calcFeeCents(priceCents);
+
+  m.price_cents = priceCents;
+  m.fee_cents = feeCents;
+  m.amount_cents = priceCents + feeCents;
+  m.status = "PRICED";
+
+  return reply.send({ ok: true, match: m });
+});
+
+// ---------- MATCH: PAY (CARD or WALLET) ----------
+app.post("/matches/:id/pay", { preHandler: [requireAuth] }, async (request, reply) => {
+  const { id } = request.params;
+  const m = ensureMatchAccess(request, reply, String(id));
+  if (!m) return;
+
+  // solo requester può pagare
+  if (String(m.userId) !== String(request.user.id)) {
+    return reply.code(403).send({ ok: false, error: "Solo il richiedente può pagare" });
+  }
+
+  const useWallet = !!request.body?.use_wallet;
+
+  const priceCents = Number(m.price_cents || 0);
+  if (!priceCents || priceCents <= 0) return reply.code(400).send({ ok: false, error: "Prezzo non impostato" });
+
+  const feeCents = typeof m.fee_cents === "number" ? m.fee_cents : calcFeeCents(priceCents);
+  const amountCents = priceCents + feeCents;
+
+  m.fee_cents = feeCents;
+  m.amount_cents = amountCents;
+
+  const helper = users.find((u) => String(u.id) === String(m.helperId)) || null;
+  if (!helper) return reply.code(400).send({ ok: false, error: "Helper non trovato" });
+
+  // WALLET (voucher)
+  if (useWallet) {
+    if (typeof request.user.walletCents !== "number") request.user.walletCents = 0;
+    if (request.user.walletCents < amountCents) {
+      return reply.code(400).send({ ok: false, error: "Wallet insufficiente" });
+    }
+
+    request.user.walletCents -= amountCents;
+
+    m.paid_with_wallet = true;
+    m.payment_status = "wallet_held";
+    m.status = "HELD";
+    m.paidAt = new Date().toISOString();
+
+    return reply.send({
+      ok: true,
+      wallet_used: true,
+      amount_cents: amountCents,
+      match: m,
+      wallet_cents: request.user.walletCents,
+    });
+  }
+
+  // CARD (Stripe)
+  if (!stripe) return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
+  if (!helper.stripeAccountId) {
+    return reply.code(400).send({ ok: false, error: "Helper non ha Stripe Connect attivo" });
+  }
+
+  try {
+    const pi = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: "eur",
+      capture_method: "manual",
+      automatic_payment_methods: { enabled: true },
+
+      // Connect: manda i fondi all’helper e trattieni fee
+      application_fee_amount: feeCents,
+      transfer_data: { destination: helper.stripeAccountId },
+      on_behalf_of: helper.stripeAccountId,
+
+      metadata: {
+        matchId: String(m.id),
+        requestId: String(m.requestId),
+        userId: String(m.userId),
+        helperId: String(m.helperId),
+      },
+    });
+
+    m.payment_intent_id = pi.id;
+    m.payment_status = pi.status;
+    m.status = "PAYMENT_CREATED";
+
+    return reply.send({
+      ok: true,
+      clientSecret: pi.client_secret,
+      amount_cents: amountCents,
+      match: m,
+    });
+  } catch (e) {
+    request.log.error(e, "Stripe create payment intent failed");
+    return reply.code(500).send({ ok: false, error: e.message || "Errore Stripe" });
+  }
+});
+
+// ---------- MATCH: RELEASE (CAPTURE) ----------
+app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, reply) => {
+  const { id } = request.params;
+  const m = ensureMatchAccess(request, reply, String(id));
+  if (!m) return;
+
+  // solo requester rilascia
+  if (String(m.userId) !== String(request.user.id)) {
+    return reply.code(403).send({ ok: false, error: "Solo il richiedente può rilasciare" });
+  }
+
+  const helper = users.find((u) => String(u.id) === String(m.helperId)) || null;
+  if (!helper) return reply.code(400).send({ ok: false, error: "Helper non trovato" });
+
+  // WALLET release => prova transfer a Connect (serve balance Stripe sulla piattaforma)
+  if (m.paid_with_wallet) {
+    m.status = "RELEASING";
+
+    if (stripe && helper.stripeAccountId) {
+      try {
+        const tr = await stripe.transfers.create({
+          amount: Number(m.price_cents || 0),
+          currency: "eur",
+          destination: helper.stripeAccountId,
+          metadata: { matchId: String(m.id), requestId: String(m.requestId) },
+        });
+        m.transfer_id = tr.id;
+      } catch (e) {
+        request.log.error(e, "Stripe transfer failed (wallet release)");
+        // Se fallisce il transfer, almeno non blocchiamo UX: segnaliamo errore chiaro
+        return reply.code(500).send({
+          ok: false,
+          error: "Transfer Stripe fallito (wallet). Serve saldo Stripe sulla piattaforma.",
+        });
+      }
+    }
+
+    m.payment_status = "released";
+    m.status = "RELEASED";
+    m.releasedAt = new Date().toISOString();
+    return reply.send({ ok: true, match: m });
+  }
+
+  // CARD release => capture PaymentIntent
+  if (!stripe) return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
+  if (!m.payment_intent_id) return reply.code(400).send({ ok: false, error: "Pagamento non avviato" });
+
+  try {
+    const pi = await stripe.paymentIntents.retrieve(m.payment_intent_id);
+
+    if (pi.status === "succeeded") {
+      m.payment_status = "succeeded";
+      m.status = "RELEASED";
+      m.releasedAt = new Date().toISOString();
+      return reply.send({ ok: true, match: m });
+    }
+
+    if (pi.status !== "requires_capture") {
+      return reply.code(400).send({ ok: false, error: `Pagamento non rilasciabile (status: ${pi.status})` });
+    }
+
+    const captured = await stripe.paymentIntents.capture(m.payment_intent_id);
+
+    m.payment_status = captured.status;
+    m.status = "RELEASED";
+    m.releasedAt = new Date().toISOString();
+
+    return reply.send({ ok: true, match: m });
+  } catch (e) {
+    request.log.error(e, "Stripe capture failed");
+    return reply.code(500).send({ ok: false, error: e.message || "Errore rilascio pagamento" });
+  }
+});
 
   // ---------------- PAYMENTS (Stripe) ----------------
   app.post("/payments/create-intent", { preHandler: [requireAuth] }, async (request, reply) => {

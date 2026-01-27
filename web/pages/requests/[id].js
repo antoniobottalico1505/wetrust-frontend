@@ -183,16 +183,17 @@ export default function RequestDetail({ id }) {
 
   // paga richiedente (carta o voucher)
   async function startPay(useWallet) {
-    setMsg("");
-    if (!match?.id) return setMsg("Match non valido.");
-    if (!requireAuthOrMessage()) return;
+  setMsg("");
+  if (!match?.id) return setMsg("Match non valido.");
+  if (!requireAuthOrMessage()) return;
 
-    try {
-      const data = await apiAuthFetch(`/matches/${match.id}/pay`, {
-        method: "POST",
-        body: { use_wallet: !!useWallet },
-      });
+  try {
+    const data = await apiAuthFetch(`/matches/${match.id}/pay`, {
+      method: "POST",
+      body: { use_wallet: !!useWallet },
+    });
 
+<<<<<<< HEAD
       // Voucher/wallet: non serve Stripe Elements
       if (data?.walletPaid) {
         setClientSecret(null);
@@ -208,8 +209,25 @@ export default function RequestDetail({ id }) {
       if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee inclusa)`);
     } catch (err) {
       setMsg(err?.message || "Errore avvio pagamento");
+=======
+    setMatch(data?.match || match);
+
+    // ✅ voucher/wallet: nessun checkout Stripe
+    if (data?.wallet_used || data?.match?.paid_with_wallet) {
+      setClientSecret(null);
+      setMsg("Pagato con voucher ✅ (fondi bloccati)");
+      await load();
+      return;
+>>>>>>> a7c1c41 (Integrate Stripe onboarding + payments flow)
     }
+
+    // ✅ carta: mostra PaymentElement
+    setClientSecret(data?.clientSecret || null);
+    if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee inclusa)`);
+  } catch (err) {
+    setMsg(err?.message || "Errore avvio pagamento");
   }
+}
 
   async function release() {
     setMsg("");
@@ -325,7 +343,12 @@ export default function RequestDetail({ id }) {
 
               {clientSecret && stripePromise ? (
                 <Elements stripe={stripePromise} options={{ clientSecret }}>
-                  <PayBox onPaid={() => load()} />
+                  <PayBox
+  onPaid={() => {
+    setClientSecret(null);
+    load();
+  }}
+/>
                 </Elements>
               ) : (
                 <div className="card">

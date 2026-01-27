@@ -3,6 +3,7 @@ import { useContext, useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import { AuthContext } from "./_app";
+import Link from "next/link";
 
 function getToken() {
   if (typeof window === "undefined") return null;
@@ -234,12 +235,26 @@ export default function ProfilePage() {
           <hr className="hr" />
 
           <h2>Per ricevere pagamenti</h2>
+<<<<<<< HEAD
           <p className="sub">
             Completa l’onboarding Stripe Express (richiesto per farti pagare).
           </p>
           <button onClick={startOnboarding} disabled={loading}>
             {loading ? "Apro…" : "Attiva pagamenti (Stripe Connect)"}
           </button>
+=======
+          <p className="sub">Completa l’onboarding Stripe Express (richiesto per farti pagare).</p>
+          <Link
+  href="/stripe/onboard"
+  className={`btnLink ${loading ? "disabled" : ""}`}
+  aria-disabled={loading}
+  onClick={(e) => {
+    if (loading) e.preventDefault();
+  }}
+>
+  {loading ? "Apro…" : "Attiva pagamenti (Stripe Connect)"}
+</Link>
+>>>>>>> a7c1c41 (Integrate Stripe onboarding + payments flow)
 
           <hr className="hr" />
 
@@ -324,6 +339,27 @@ export default function ProfilePage() {
         .msg {
           font-size: 13px;
         }
+<<<<<<< HEAD
+=======
+.btnLink {
+  border-radius: 999px;
+  border: none;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(135deg, #00b4ff, #00e0a0);
+  color: #020617;
+  text-decoration: none;
+  display: inline-block;
+}
+.btnLink.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+        .hr { width:100%; border:none; border-top:1px solid rgba(148,163,184,0.25); margin: 4px 0; }
+        .msg { font-size: 13px; }
+>>>>>>> a7c1c41 (Integrate Stripe onboarding + payments flow)
       `}</style>
     </Layout>
   );
