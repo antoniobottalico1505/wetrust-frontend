@@ -14,6 +14,7 @@ import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-
  */
 function getToken() {
   if (typeof window === "undefined") return null;
+
   try {
     return (
       localStorage.getItem("wetrust_token") ||
@@ -23,6 +24,13 @@ function getToken() {
   } catch {
     return null;
   }
+
+  return (
+    localStorage.getItem("wetrust_token") ||
+    localStorage.getItem("token") ||
+    sessionStorage.getItem("token")
+  );
+ 18034cb (Style request detail like requests cards before accept)
 }
 
 async function apiAuthFetch(path, options = {}) {
@@ -208,10 +216,16 @@ export default function RequestDetail({ id }) {
         return;
       }
 
-      const data = await apiAuthFetch(`/matches/${match.id}/price`, {
+      const data = await apiAuthFetch(`/matches/${match.id}/price`, 
+
         method: "POST",
         body: { price_cents: cents }, // ✅ oggetto
       });
+
+  method: "POST",
+  body: { price_cents: cents },
+});
+18034cb (Style request detail like requests cards before accept)
 
       setMatch(data.match);
       setMsg("Prezzo impostato ✅");
@@ -227,9 +241,15 @@ export default function RequestDetail({ id }) {
 
     try {
       const data = await apiAuthFetch(`/matches/${match.id}/pay`, {
+
         method: "POST",
         body: { use_wallet: !!useWallet }, // ✅ oggetto
       });
+
+  method: "POST",
+  body: { use_wallet: !!useWallet },
+});
+18034cb (Style request detail like requests cards before accept)
 
       setClientSecret(data.clientSecret);
       setMatch(data.match);
@@ -272,15 +292,39 @@ export default function RequestDetail({ id }) {
 
       {!loading && reqData && (
         <>
-          <div className="top">
-            <div>
-              <h1>{reqData.title}</h1>
-              <p className="desc">{reqData.description}</p>
-              <div className="meta">
-                {city ? <span>{city}</span> : null}
-                <span className="badge">{reqData.status}</span>
-              </div>
-            </div>
+         <div className="list">
+  <article className="card2">
+    <h2>{reqData.title}</h2>
+
+    {city ? <p className="city">{city}</p> : null}
+
+    <p className="desc">{reqData.description}</p>
+
+    <div className="row">
+      <span className="badge">{reqData.status}</span>
+
+      {!ready ? null : !user ? (
+        <Link href="/login" className="btn2">
+          Accedi via SMS
+        </Link>
+      ) : !match && String(user.id) !== String(reqData.userId) ? (
+        <button type="button" onClick={accept} className="btn2">
+          Accetta
+        </button>
+      ) : null}
+
+      {match ? (
+        <Link href={`/chat/${match.id}`} className="ghost">
+          Apri chat
+        </Link>
+      ) : null}
+
+      <Link href="/requests" className="ghost">
+        Torna alle richieste
+      </Link>
+    </div>
+  </article>
+</div>
 
             <div className="actions">
               {!ready ? null : !user ? (
@@ -467,6 +511,56 @@ export default function RequestDetail({ id }) {
               padding: 2px 6px;
               border-radius: 8px;
             }
+.list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+  margin-top: 10px;
+}
+
+.card2 {
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 14px 16px;
+}
+
+.card2 h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.city {
+  margin: 0 0 8px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.desc {
+  margin: 0;
+  opacity: 0.92;
+  font-size: 14px;
+}
+
+.btn2 {
+  border-radius: 999px;
+  border: none;
+  padding: 10px 16px;
+  font-weight: 900;
+  cursor: pointer;
+  background: linear-gradient(135deg, #00b4ff, #00e0a0);
+  color: #020617;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  font-size: 12px;
+  opacity: 0.9;
+}
           `}</style>
         </>
       )}
