@@ -14,7 +14,15 @@ import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-
  */
 function getToken() {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("token") || sessionStorage.getItem("token");
+  try {
+    return (
+      localStorage.getItem("wetrust_token") ||
+      localStorage.getItem("token") ||
+      sessionStorage.getItem("token")
+    );
+  } catch {
+    return null;
+  }
 }
 
 async function apiAuthFetch(path, options = {}) {
@@ -125,7 +133,9 @@ function PayBox({ match, onPaid }) {
 }
 
 export default function RequestDetail({ id }) {
-  const { user, ready } = useContext(AuthContext);
+  const auth = useContext(AuthContext) || {};
+  const user = auth.user ?? auth[0] ?? null;
+  const ready = auth.ready ?? auth[2] ?? false;
 
   const [reqData, setReqData] = useState(null);
   const [match, setMatch] = useState(null);
@@ -161,6 +171,8 @@ export default function RequestDetail({ id }) {
     } catch (err) {
       const m = err?.message || "Errore caricamento";
       setMsg(m);
+      setReqData(null);
+      setMatch(null);
     } finally {
       setLoading(false);
     }
@@ -198,7 +210,7 @@ export default function RequestDetail({ id }) {
 
       const data = await apiAuthFetch(`/matches/${match.id}/price`, {
         method: "POST",
-        body: JSON.stringify({ price_cents: cents }),
+        body: { price_cents: cents }, // ✅ oggetto
       });
 
       setMatch(data.match);
@@ -216,7 +228,7 @@ export default function RequestDetail({ id }) {
     try {
       const data = await apiAuthFetch(`/matches/${match.id}/pay`, {
         method: "POST",
-        body: JSON.stringify({ use_wallet: !!useWallet }),
+        body: { use_wallet: !!useWallet }, // ✅ oggetto
       });
 
       setClientSecret(data.clientSecret);
@@ -241,7 +253,13 @@ export default function RequestDetail({ id }) {
     }
   }
 
-  if (!id) return null;
+  if (!id) {
+    return (
+      <Layout title="WeTrust — Dettaglio richiesta">
+        <p>Caricamento…</p>
+      </Layout>
+    );
+  }
 
   const city = reqData ? pickCity(reqData) : "";
 
@@ -249,6 +267,8 @@ export default function RequestDetail({ id }) {
     <Layout title="WeTrust — Dettaglio richiesta">
       {loading && <p>Caricamento…</p>}
       {msg && <p className="msgTop">{msg}</p>}
+
+      {!loading && !reqData && !msg && <p>Nessuna richiesta trovata.</p>}
 
       {!loading && reqData && (
         <>

@@ -1,5 +1,6 @@
 import { useContext, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import { AuthContext } from "./_app";
@@ -27,6 +28,7 @@ function pickCity(r) {
 }
 
 export default function RequestsPage() {
+  const router = useRouter();
   const auth = useContext(AuthContext) || {};
   const user = auth.user ?? auth[0] ?? null;
   const ready = auth.ready ?? auth[2] ?? false;
@@ -51,7 +53,19 @@ export default function RequestsPage() {
 
   async function accept(requestId) {
     try {
-      await apiFetch(`/requests/${requestId}/accept`, { method: "POST" });
+      const data = await apiFetch(`/requests/${requestId}/accept`, { method: "POST" });
+
+      const matchId =
+        data?.match?.id ||
+        data?.match_id ||
+        data?.matchId ||
+        data?.id;
+
+      if (matchId) {
+        router.push(`/chat/${matchId}`);
+        return;
+      }
+
       await load();
     } catch (err) {
       alert(err?.message || "Errore durante l’accettazione.");
