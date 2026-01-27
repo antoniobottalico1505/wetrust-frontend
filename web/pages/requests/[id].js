@@ -267,48 +267,66 @@ if (request) cacheRequest(getRequestId(request, id), request);
   }, [id, ready, user?.id]);
 
   async function accept() {
-    setMsg("");
+  setMsg("");
 
-const ownerId = getOwnerId(reqData);
-if (ownerId && user?.id && String(ownerId) === String(user.id)) {
-  setMsg("Non puoi accettare la tua richiesta.");
-  return;
-}
-
-    if (!readToken()) {
-      router.push("/login");
-      return;
-    }
-
-    try {
-      // 1) POST /matches
-      let data;
-      try {
-        data = await apiFetch("/matches", {
-          method: "POST",
-          body: { requestId: id, helperId: user?.id, request_id: id, helper_id: user?.id },
-        });
-      } catch (e) {
-        const m = String(e?.message || "").toLowerCase();
-        if (m.includes("not found") || m.includes("404")) {
-          // 2) fallback /requests/:id/accept
-          data = await apiFetch(`/requests/${id}/accept`, { method: "POST", body: { helperId: user?.id, helper_id: user?.id } });
-        } else {
-          throw e;
-        }
-      }
-
-      const matchId = extractMatchId(data);
-      const mObj = data?.match || data?.item || data;
-
-      if (mObj) setMatch(mObj);
-      setMsg("Richiesta accettata ✅ Ora potete chattare.");
-
-      if (matchId) router.push(`/chat/${matchId}`);
-    } catch (err) {
-      setMsg(err?.message || "Errore accettazione.");
-    }
+  const token = readToken();
+  if (!token) {
+    router.push("/login");
+    return;
   }
+
+  if (ownerId && user?.id && String(ownerId) === String(user.id)) {
+    setMsg("Non puoi accettare la tua richiesta.");
+    return;
+  }
+
+  try {
+    // helperId = chi accetta (l'utente loggato)
+    let helperId = user?.id;
+    if (!helperId) {
+      const me = await apiFetch("/me");
+      helperId = me?.user?.id || me?.id;
+    }
+    if (!helperId) {
+      throw new Error("Impossibile determinare il tuo userId (helperId).");
+    }
+
+    const requestId = getRequestId(reqData, id);
+
+    // 1) percorso standard: crea match
+    let data;
+    try {
+      data = await apiFetch("/matches", {
+        method: "POST",
+        body: {
+          requestId,
+          helperId,
+          // compat backend legacy
+          request_id: requestId,
+          helper_id: helperId,
+        },
+      });
+    } catch (e) {
+      // 2) fallback: endpoint legacy (se esiste)
+      data = await apiFetch(`/requests/${id}/accept`, {
+        method: "POST",
+        body: { helperId, helper_id: helperId },
+      });
+    }
+
+    if (data && data.ok === false) {
+      throw new Error(data.error || "Errore accettazione.");
+    }
+
+    const matchId = extractMatchId(data);
+    if (!matchId) throw new Error("Match creato ma id mancante.");
+
+    // Vai direttamente alla chat (riquadro di scrittura)
+    router.push(`/chat/${matchId}`);
+  } catch (err) {
+    setMsg(err?.message || "Errore accettazione.");
+  }
+}
 
   const requesterId =
     match?.requester_id ?? match?.userId ?? match?.requesterId ?? match?.user_id ?? null;

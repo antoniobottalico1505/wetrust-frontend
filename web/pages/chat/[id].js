@@ -30,6 +30,14 @@ async function apiAuthFetch(path, options = {}) {
   return apiFetch(path, { ...options, headers });
 }
 
+function last6(value) {
+  const s = value == null ? "" : String(value);
+  const digits = s.replace(/\D/g, "");
+  const base = digits || s;
+  if (!base) return "";
+  return base.length > 6 ? base.slice(-6) : base;
+}
+
 function messageOwner(m, me) {
   const senderId =
     m?.userId ||
@@ -39,7 +47,9 @@ function messageOwner(m, me) {
     m?.from ||
     m?.user_id;
 
-  const isMe = me && senderId && String(senderId) === String(me.id);
+  const meId = me?.id != null ? String(me.id) : "";
+  const sender = senderId != null ? String(senderId) : "";
+  const isMe = !!meId && !!sender && sender === meId;
 
   const phone =
     m?.phone ||
@@ -49,11 +59,10 @@ function messageOwner(m, me) {
     m?.from_phone ||
     m?.sender_phone;
 
-  const displayNumber = isMe
-    ? (me.phone || me.email || me.id || "—")
-    : (phone || (senderId ? String(senderId) : "—"));
+  const raw = isMe ? (me?.phone || me?.email || meId) : (phone || sender);
+  const short = last6(raw);
 
-  return { label: isMe ? "Tu" : "Utente", number: displayNumber };
+  return { label: isMe ? "Tu" : "Utente", short };
 }
 
 export default function ChatRoom() {
@@ -168,7 +177,10 @@ export default function ChatRoom() {
                 const o = messageOwner(m, user);
                 return (
                   <div className="meta">
-                    {new Date(m.createdAt).toLocaleString()} • {o.label}: {o.number}
+                    {(() => {
+  const who = o.short ? `${o.label} ${o.short}` : o.label;
+  return `${new Date(m.createdAt).toLocaleString()} • ${who}`;
+})()}
                   </div>
                 );
               })()}
