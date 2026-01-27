@@ -70,14 +70,14 @@ export async function apiFetch(path, opts = {}) {
 
   // Aggiunge token se disponibile
   const token =
-  (typeof window !== "undefined" &&
-    (localStorage.getItem("wetrust_token") ||
-     localStorage.getItem("token") ||
-     sessionStorage.getItem("wetrust_token") ||
-     sessionStorage.getItem("token"))) || null;
+    (typeof window !== "undefined" &&
+      (localStorage.getItem("wetrust_token") ||
+        localStorage.getItem("token") ||
+        sessionStorage.getItem("wetrust_token") ||
+        sessionStorage.getItem("token"))) ||
+    null;
 
-if (token) headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   // Body
   let body = fetchOpts.body;
@@ -94,7 +94,12 @@ if (token) headers.Authorization = `Bearer ${token}`;
     if (!headers["Content-Type"] && !headers["content-type"]) {
       headers["Content-Type"] = "application/json";
     }
-  } else if (typeof body === "string" && !isFormData && !headers["Content-Type"] && !headers["content-type"]) {
+  } else if (
+    typeof body === "string" &&
+    !isFormData &&
+    !headers["Content-Type"] &&
+    !headers["content-type"]
+  ) {
     const t = body.trim();
     if (t.startsWith("{") || t.startsWith("[")) {
       headers["Content-Type"] = "application/json";
@@ -108,9 +113,7 @@ if (token) headers.Authorization = `Bearer ${token}`;
   }
 
   const url =
-    typeof path === "string" && path.startsWith("http")
-      ? path
-      : joinUrl(API_BASE, path);
+    typeof path === "string" && path.startsWith("http") ? path : joinUrl(API_BASE, path);
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -154,9 +157,7 @@ if (token) headers.Authorization = `Bearer ${token}`;
 
   // Errore: status non ok, oppure payload {ok:false}
   if (!res.ok || (data && data.ok === false)) {
-    const msg =
-      (data && (data.error || data.message)) ||
-      `Errore API (${res.status})`;
+    const msg = (data && (data.error || data.message)) || `Errore API (${res.status})`;
 
     // Migliora debug: include status+url in dev
     const err = new Error(msg);
