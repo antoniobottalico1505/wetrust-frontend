@@ -1,3 +1,4 @@
+// web/pages/profile.js
 import { useContext, useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
@@ -39,6 +40,7 @@ function pickUrl(data) {
     data.link ||
     data.redirect_url ||
     data.redirectUrl ||
+    (typeof data === "string" ? data : "") ||
     ""
   );
 }
@@ -68,13 +70,19 @@ export default function ProfilePage() {
   const [wallet, setWallet] = useState(0);
   const [redeemCode, setRedeemCode] = useState("");
   const [loading, setLoading] = useState(false);
-const data = await apiFetch("/stripe/connect/onboard", { method: "POST", body: { baseUrl: window.location.origin } });
-window.location.href = data.url;
 
   async function loadWallet() {
     try {
-      const data = await apiAuthFetch("/wallet");
-      setWallet(Number(data?.wallet_cents || 0));
+      const data = await tryCalls([
+        () => apiAuthFetch("/wallet"),
+        () => apiAuthFetch("/me/wallet"),
+        () => apiAuthFetch("/users/me/wallet"),
+      ]);
+
+      const cents =
+        Number(data?.wallet_cents ?? data?.wallet ?? data?.walletCents ?? 0) || 0;
+
+      setWallet(cents);
     } catch {
       setWallet(0);
     }
@@ -113,12 +121,9 @@ window.location.href = data.url;
     try {
       setLoading(true);
 
-      // ✅ prova endpoint realistici (se il backend ne espone uno, ora funziona)
       await tryCalls([
         () => apiAuthFetch("/vouchers/redeem", { method: "POST", body: { code } }),
-        () => apiAuthFetch("/vouchers/redeem", { method: "POST", body: JSON.stringify({ code }) }),
         () => apiAuthFetch("/wallet/redeem", { method: "POST", body: { code } }),
-        () => apiAuthFetch("/wallet/redeem", { method: "POST", body: JSON.stringify({ code }) }),
         () => apiAuthFetch("/voucher/redeem", { method: "POST", body: { code } }),
         () => apiAuthFetch("/redeem", { method: "POST", body: { code } }),
       ]);
@@ -135,105 +140,43 @@ window.location.href = data.url;
   }
 
   async function startOnboarding() {
-  setMsg("");
-  try {
-    setLoading(true);
+    setMsg("");
+    if (typeof window === "undefined") return;
 
-    const baseUrl = window.location.origin;
+    try {
+      setLoading(true);
 
-    const endpoints = [
-      "/stripe/connect/onboard",
-      "/stripe/connect/onboarding",
-      "/stripe/onboard",
-      "/stripe/onboarding",
-      "/payments/stripe/onboard",
-      "/payments/onboard",
-    ];
+      const baseUrl = window.location.origin;
 
-    const bodies = [
-      { baseUrl },
-      { base_url: baseUrl },
-      { returnUrl: baseUrl },
-      { return_url: baseUrl },
-    ];
+      // endpoint principale (quello giusto)
+      const data = await apiAuthFetch("/stripe/connect/onboard", {
+        method: "POST",
+        body: { baseUrl },
+      });
 
-    let lastErr = null;
+      const url = pickUrl(data);
 
-    // 1) POST
-    for (const ep of endpoints) {
-      for (const body of bodies) {
-        try {
-          const data = await apiAuthFetch(ep, { method: "POST", body });
-
-          const url =
-            data?.url ||
-            data?.onboarding_url ||
-            data?.account_link_url ||
-            data?.link ||
-            data?.redirect_url ||
-            (typeof data === "string" ? data : null);
-
-          if (url) {
-            window.location.href = url;
-            return;
-          }
-
-          await refresh();
-          setMsg("Onboarding avviato ✅");
-          return;
-        } catch (e) {
-          lastErr = e;
-          const m = String(e?.message || "").toLowerCase();
-          if (m.includes("not found") || m.includes("404")) break;
-        }
+      if (url) {
+        window.location.href = url;
+        return;
       }
+
+      await refresh();
+      setMsg("Onboarding avviato ✅");
+    } catch (e) {
+      setMsg(e?.message || "Errore nell'apertura onboarding Stripe.");
+    } finally {
+      setLoading(false);
     }
-
-    // 2) GET fallback
-    for (const ep of endpoints) {
-      const urls = [
-        `${ep}?baseUrl=${encodeURIComponent(baseUrl)}`,
-        `${ep}?base_url=${encodeURIComponent(baseUrl)}`,
-        `${ep}?return_url=${encodeURIComponent(baseUrl)}`,
-      ];
-
-      for (const u of urls) {
-        try {
-          const data = await apiAuthFetch(u);
-
-          const url =
-            data?.url ||
-            data?.onboarding_url ||
-            data?.account_link_url ||
-            data?.link ||
-            data?.redirect_url ||
-            (typeof data === "string" ? data : null);
-
-          if (url) {
-            window.location.href = url;
-            return;
-          }
-
-          await refresh();
-          setMsg("Onboarding avviato ✅");
-          return;
-        } catch (e) {
-          lastErr = e;
-          const m = String(e?.message || "").toLowerCase();
-          if (m.includes("not found") || m.includes("404")) break;
-        }
-      }
-    }
-
-    throw lastErr || new Error("Not found");
-  } catch (e) {
-    setMsg(e?.message || "Errore nell'apertura onboarding Stripe.");
-  } finally {
-    setLoading(false);
   }
-}
 
-  if (!ready) return <Layout title="WeTrust"><p>Caricamento…</p></Layout>;
+  if (!ready) {
+    return (
+      <Layout title="WeTrust">
+        <p>Caricamento…</p>
+      </Layout>
+    );
+  }
 
   if (!user) {
     return (
@@ -241,22 +184,27 @@ window.location.href = data.url;
         <div style={{ padding: "10px 0" }}>
           <h1>Profilo</h1>
           <p>Per creare richieste, accettarle e chattare devi accedere.</p>
-          <a href="/login" className="btn">Vai al login</a>
+          <a href="/login" className="btn">
+            Vai al login
+          </a>
         </div>
+
         <style jsx>{`
-          .btn{
-            display:inline-block;
-            border-radius:999px;
-            padding:8px 18px;
-            font-weight:700;
-            background:linear-gradient(135deg,#00b4ff,#00e0a0);
-            color:#020617;
-            text-decoration:none;
+          .btn {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 8px 18px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00b4ff, #00e0a0);
+            color: #020617;
+            text-decoration: none;
           }
         `}</style>
       </Layout>
     );
   }
+
+  const stripeActive = !!(user.stripe_account_id || user.stripeAccountId);
 
   return (
     <Layout title="WeTrust — Profilo">
@@ -264,19 +212,31 @@ window.location.href = data.url;
         <h1>Profilo</h1>
 
         <div className="card">
-          <div><strong>Trust-ID</strong>: {user.phone || user.email || user.name || "—"}</div>
-          <div><strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€</div>
-          <div><strong>Stripe Connect</strong>: {user.stripe_account_id ? "attivo" : "non attivo"}</div>
+          <div>
+            <strong>Trust-ID</strong>: {user.phone || user.email || user.name || "—"}
+          </div>
+          <div>
+            <strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€
+          </div>
+          <div>
+            <strong>Stripe Connect</strong>: {stripeActive ? "attivo" : "non attivo"}
+          </div>
 
           <div className="row">
-            <button onClick={doRefresh} disabled={loading}>Aggiorna</button>
-            <button className="ghost" onClick={logout} disabled={loading}>Esci</button>
+            <button onClick={doRefresh} disabled={loading}>
+              Aggiorna
+            </button>
+            <button className="ghost" onClick={logout} disabled={loading}>
+              Esci
+            </button>
           </div>
 
           <hr className="hr" />
 
           <h2>Per ricevere pagamenti</h2>
-          <p className="sub">Completa l’onboarding Stripe Express (richiesto per farti pagare).</p>
+          <p className="sub">
+            Completa l’onboarding Stripe Express (richiesto per farti pagare).
+          </p>
           <button onClick={startOnboarding} disabled={loading}>
             {loading ? "Apro…" : "Attiva pagamenti (Stripe Connect)"}
           </button>
@@ -298,10 +258,23 @@ window.location.href = data.url;
       </div>
 
       <style jsx>{`
-        .wrap { max-width: 760px; margin: 0 auto; padding: 16px 0; }
-        h1 { font-size: 28px; margin: 6px 0 12px; }
-        h2 { margin: 8px 0 6px; font-size: 18px; }
-        .sub { margin: 0 0 10px; opacity: 0.9; }
+        .wrap {
+          max-width: 760px;
+          margin: 0 auto;
+          padding: 16px 0;
+        }
+        h1 {
+          font-size: 28px;
+          margin: 6px 0 12px;
+        }
+        h2 {
+          margin: 8px 0 6px;
+          font-size: 18px;
+        }
+        .sub {
+          margin: 0 0 10px;
+          opacity: 0.9;
+        }
         .card {
           border-radius: 18px;
           background: rgba(15, 23, 42, 0.95);
@@ -311,7 +284,12 @@ window.location.href = data.url;
           flex-direction: column;
           gap: 10px;
         }
-        .row { display:flex; gap: 10px; flex-wrap: wrap; align-items:center; }
+        .row {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
         input {
           flex: 1;
           min-width: 180px;
@@ -335,10 +313,17 @@ window.location.href = data.url;
         .ghost {
           background: transparent;
           color: #ffffff;
-          border: 1px solid rgba(148,163,184,0.6);
+          border: 1px solid rgba(148, 163, 184, 0.6);
         }
-        .hr { width:100%; border:none; border-top:1px solid rgba(148,163,184,0.25); margin: 4px 0; }
-        .msg { font-size: 13px; }
+        .hr {
+          width: 100%;
+          border: none;
+          border-top: 1px solid rgba(148, 163, 184, 0.25);
+          margin: 4px 0;
+        }
+        .msg {
+          font-size: 13px;
+        }
       `}</style>
     </Layout>
   );
