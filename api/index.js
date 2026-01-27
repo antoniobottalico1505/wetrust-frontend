@@ -462,6 +462,48 @@ stripeAccountId: null,
   return reply.send({ ok: true, item: r });
 });
 
+app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) => {
+  const { id } = request.params;
+
+  const reqItem = requests.find((x) => x.id === String(id));
+  if (!reqItem) return reply.code(404).send({ ok: false, error: "Request non trovata" });
+
+  const match = matches.find((m) => String(m.requestId) === String(reqItem.id)) || null;
+
+  return reply.send({ ok: true, request: reqItem, match });
+});
+
+app.post("/requests/:id/accept", { preHandler: [requireAuth] }, async (request, reply) => {
+  const { id } = request.params;
+
+  const reqItem = requests.find((x) => x.id === String(id));
+  if (!reqItem) return reply.code(404).send({ ok: false, error: "Request non trovata" });
+
+  // non puoi accettare la tua richiesta
+  if (String(reqItem.userId) === String(request.user.id)) {
+    return reply.code(400).send({ ok: false, error: "Non puoi accettare la tua richiesta" });
+  }
+
+  // evita duplicati: se esiste già un match per questa request, ritornalo
+  let existing = matches.find((m) => String(m.requestId) === String(reqItem.id));
+  if (existing) return reply.send({ ok: true, match: existing });
+
+  const m = {
+    id: String(Date.now()),
+    requestId: String(reqItem.id),
+    userId: reqItem.userId,              // requester
+    helperId: String(request.user.id),   // chi accetta
+    createdAt: new Date().toISOString(),
+  };
+
+  matches.push(m);
+
+  // opzionale: aggiorna status request
+  reqItem.status = "ACCEPTED";
+
+  return reply.send({ ok: true, match: m });
+});
+
   // ---------------- MATCHES ----------------
   app.get("/matches", { preHandler: [requireAuth] }, async (request) => {
     const list = matches.filter((m) => m.userId === request.user.id || m.helperId === request.user.id);
