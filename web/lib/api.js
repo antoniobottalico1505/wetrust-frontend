@@ -10,15 +10,13 @@ const ENV_BASE =
   process.env.VITE_API_URL ||
   "";
 
-const API_FALLBACK =
-  process.env.NEXT_PUBLIC_API_FALLBACK ||
-  "https://wetrust-frontend.onrender.com";
-
-const HAS_ENV_BASE = !!ENV_BASE;
+const FALLBACK_RENDER_API = "https://wetrust-frontend.onrender.com"; // <-- il tuo backend Render
 
 const API_BASE =
   ENV_BASE ||
-  (typeof window !== "undefined" ? "/api" : API_FALLBACK);
+  (typeof window !== "undefined"
+    ? (window.location.hostname.endsWith("wetrust.club") ? FALLBACK_RENDER_API : "/api")
+    : FALLBACK_RENDER_API);
 
 // --- Token helpers ---
 function readToken() {
@@ -71,9 +69,14 @@ export async function apiFetch(path, opts = {}) {
   const headers = headersToObject(fetchOpts.headers);
 
   // Aggiunge token se disponibile
-  const token = readToken();
-  if (auth !== false && token && !headers.Authorization && !headers.authorization) {
-    headers.Authorization = `Bearer ${token}`;
+  const token =
+  (typeof window !== "undefined" &&
+    (localStorage.getItem("wetrust_token") ||
+     localStorage.getItem("token") ||
+     sessionStorage.getItem("wetrust_token") ||
+     sessionStorage.getItem("token"))) || null;
+
+if (token) headers.Authorization = `Bearer ${token}`;
   }
 
   // Body
@@ -104,15 +107,10 @@ export async function apiFetch(path, opts = {}) {
     body = undefined;
   }
 
-  const isAbsolute = typeof path === "string" && path.startsWith("http");
-
-  const primaryUrl = isAbsolute ? path : joinUrl(API_BASE, path);
-  const fallbackUrl =
-    !isAbsolute && !HAS_ENV_BASE && API_BASE === "/api" && API_FALLBACK
-      ? joinUrl(API_FALLBACK, path)
-      : null;
-
-  let url = primaryUrl;
+  const url =
+    typeof path === "string" && path.startsWith("http")
+      ? path
+      : joinUrl(API_BASE, path);
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -126,18 +124,6 @@ export async function apiFetch(path, opts = {}) {
       headers,
       signal: controller ? controller.signal : undefined,
     });
-
-    // ✅ fallback: se in produzione non hai rewrites /api e prendi 404, riprova sul backend assoluto
-    if (res && res.status === 404 && fallbackUrl) {
-      url = fallbackUrl;
-      res = await fetch(url, {
-        ...fetchOpts,
-        method,
-        body,
-        headers,
-        signal: controller ? controller.signal : undefined,
-      });
-    }
   } catch (e) {
     const aborted = controller && e && (e.name === "AbortError" || String(e).includes("AbortError"));
     throw new Error(
