@@ -340,18 +340,22 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
               {clientSecret && stripePromise ? (
                 <Elements stripe={stripePromise} options={{ clientSecret }}>
                   <PayBox
-  onPaid={() => {
-    setClientSecret(null);
-    load();
-  }}
-/>
+                    onPaid={() => {
+                      setClientSecret(null);
+                      load();
+                    }}
+                  />
                 </Elements>
-             ) : (
-  <div className="card">
-    <h3>Pagamento</h3>
-    <p className="hint">Clicca “Paga (carta)” per vedere i metodi di pagamento.</p>
-  </div>
-)}
+              ) : (
+                <div className="card">
+                  <h3>Pagamento</h3>
+                  <p className="hint">
+                    Clicca “Paga (carta)” per vedere i metodi di pagamento.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           <style jsx>{`
             .msgTop {
