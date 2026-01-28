@@ -183,7 +183,7 @@ export default function Layout({ title = "WeTrust", children }) {
           opacity: 0.9;
         }
 
-.langBtn.flag {
+..langBtn.flag {
   position: fixed;
   top: 12px;
   right: 12px;
@@ -210,7 +210,6 @@ export default function Layout({ title = "WeTrust", children }) {
   cursor: pointer;
 }
 
-/* “bandierina” con barra colorata usando i colori link */
 .langBtn.flag::after {
   content: "";
   position: absolute;
@@ -223,7 +222,6 @@ export default function Layout({ title = "WeTrust", children }) {
   opacity: 0.95;
 }
 
-/* evidenzia la lingua attiva con bordo */
 .langBtn.flag.it { box-shadow: 0 0 0 2px rgba(0, 224, 160, 0.18); }
 .langBtn.flag.uk { box-shadow: 0 0 0 2px rgba(0, 180, 255, 0.18); }
 
