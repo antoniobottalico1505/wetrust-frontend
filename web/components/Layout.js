@@ -183,6 +183,50 @@ export default function Layout({ title = "WeTrust", children }) {
           opacity: 0.9;
         }
 
+.langBtn.flag {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 9999;
+
+  width: 46px;
+  height: 28px;
+  padding: 0;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+
+  color: var(--ink);
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+
+  cursor: pointer;
+}
+
+/* “bandierina” con barra colorata usando i colori link */
+.langBtn.flag::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--mint));
+  opacity: 0.95;
+}
+
+/* evidenzia la lingua attiva con bordo */
+.langBtn.flag.it { box-shadow: 0 0 0 2px rgba(0, 224, 160, 0.18); }
+.langBtn.flag.uk { box-shadow: 0 0 0 2px rgba(0, 180, 255, 0.18); }
+
         @media (max-width: 800px) {
           .header {
             flex-direction: column;

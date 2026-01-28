@@ -38,8 +38,13 @@ export default function LanguageToggle() {
   };
 
   return (
-    <button type="button" className="langBtn" onClick={toggle} aria-label="Switch language">
-      {lang === "it" ? "🇬🇧" : "🇮🇹"}
-    </button>
-  );
+  <button
+    type="button"
+    className={`langBtn flag ${lang === "it" ? "it" : "uk"}`}
+    onClick={toggle}
+    aria-label="Switch language"
+  >
+    {lang === "it" ? "IT" : "UK"}
+  </button>
+);
 }
