@@ -257,7 +257,6 @@ export default function ProfilePage() {
             {loading ? "Apro…" : "Attiva pagamenti (Stripe Connect)"}
           </button>
 
-          <p className="sub">Completa l’onboarding Stripe Express (richiesto per farti pagare).</p>
           <Link
   href="/stripe/onboard"
   className={`btnLink ${loading ? "disabled" : ""}`}

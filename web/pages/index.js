@@ -152,7 +152,7 @@ export default function Home() {
         <div className="grid3">
           <div className="card2">
             <h3>Trust</h3>
-            <p>Accesso con Email + Password.</p>
+            <p>Accesso con Email + Password/SMS.</p>
           </div>
           <div className="card2">
             <h3>Help</h3>

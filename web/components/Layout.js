@@ -1,11 +1,13 @@
 import Link from "next/link";
+import Script from "next/script";
+import LanguageToggle from "./LanguageToggle";
 
 export default function Layout({ title = "WeTrust", children }) {
   return (
     <>
       <div className="page">
         <header className="header">
-          {/* LINK A SINISTRA (chiaro) + LOGHI A DESTRA (scuro): già come mi hai chiesto */}
+          {/* LINK A SINISTRA (chiaro) + LOGHI A DESTRA (scuro) */}
           <nav className="nav">
             <Link href="/">Home</Link>
             <Link href="/requests">Richieste</Link>
@@ -23,14 +25,30 @@ export default function Layout({ title = "WeTrust", children }) {
           </div>
         </header>
 
+        <LanguageToggle />
+        <div id="google_translate_element" style={{ display: "none" }} />
+
         <main className="main">{children}</main>
 
         <footer className="footer">
           <span>© {new Date().getFullYear()} WeTrust.</span>
-          <span className="footer-note">
-            Fiducia umana → Aiuto reale → Pagamento semplice.
-          </span>
+          <span className="footer-note">Fiducia umana → Aiuto reale → Pagamento semplice.</span>
         </footer>
+
+        {/* Google Translate loader + init (NON dentro style) */}
+        <Script
+          id="gt-script"
+          strategy="afterInteractive"
+          src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"
+        />
+        <Script id="gt-init" strategy="afterInteractive">
+          {`function googleTranslateElementInit() {
+              new google.translate.TranslateElement(
+                { pageLanguage: 'it', includedLanguages: 'it,en', autoDisplay: false },
+                'google_translate_element'
+              );
+            }`}
+        </Script>
       </div>
 
       <style jsx global>{`
@@ -67,6 +85,26 @@ export default function Layout({ title = "WeTrust", children }) {
         a:hover {
           color: var(--mint) !important;
           text-decoration: underline;
+        }
+
+        /* language toggle + hide google banner */
+        .langBtn {
+          position: fixed;
+          top: 12px;
+          right: 12px;
+          z-index: 9999;
+          background: rgba(15, 23, 42, 0.92);
+          border: 1px solid rgba(148, 163, 184, 0.4);
+          border-radius: 999px;
+          padding: 8px 10px;
+          cursor: pointer;
+          font-size: 18px;
+        }
+        .goog-te-banner-frame.skiptranslate {
+          display: none !important;
+        }
+        body {
+          top: 0 !important;
         }
       `}</style>
 
