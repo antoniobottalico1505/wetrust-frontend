@@ -1,4 +1,4 @@
-// web/lib/api.js
+// lib/api.js
 
 // 1) Base URL:
 // - Se NEXT_PUBLIC_API_URL è settata => usa quella (es. https://...onrender.com o "/api")
@@ -15,24 +15,21 @@ const FALLBACK_RENDER_API = "https://wetrust-frontend.onrender.com"; // <-- il t
 const API_BASE =
   ENV_BASE ||
   (typeof window !== "undefined"
-    ? (window.location.hostname.endsWith("wetrust.club")
-        ? FALLBACK_RENDER_API
-        : "/api")
+    ? (window.location.hostname.endsWith("wetrust.club") ||
+       window.location.hostname.endsWith("wetrade.club"))
+      ? FALLBACK_RENDER_API
+      : "/api"
     : FALLBACK_RENDER_API);
 
-// --- Token helpers (usati per Stripe onboarding + tutte le API protette) ---
+// --- Token helpers ---
 function readToken() {
   if (typeof window === "undefined") return null;
   try {
     return (
       localStorage.getItem("wetrust_token") ||
       localStorage.getItem("token") ||
-      localStorage.getItem("access_token") ||
-      localStorage.getItem("accessToken") ||
       sessionStorage.getItem("wetrust_token") ||
-      sessionStorage.getItem("token") ||
-      sessionStorage.getItem("access_token") ||
-      sessionStorage.getItem("accessToken")
+      sessionStorage.getItem("token")
     );
   } catch {
     return null;
@@ -70,17 +67,20 @@ function headersToObject(h) {
 
 export async function apiFetch(path, opts = {}) {
   // opts.auth === false => NON aggiunge Authorization
-  const { auth = true, timeoutMs = 30000, ...fetchOpts } = opts;
+  const { auth, timeoutMs = 30000, ...fetchOpts } = opts;
 
   const headers = headersToObject(fetchOpts.headers);
 
-  // Aggiunge token se disponibile (serve per /stripe/connect/onboard e per le API protette)
-  if (auth !== false) {
-    const token = readToken();
-    if (token && !headers.Authorization) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-}
+  // Aggiunge token se disponibile
+  const token =
+  (typeof window !== "undefined" &&
+    (localStorage.getItem("wetrust_token") ||
+     localStorage.getItem("token") ||
+     sessionStorage.getItem("wetrust_token") ||
+     sessionStorage.getItem("token"))) || null;
+
+if (token) headers.Authorization = `Bearer ${token}`;
+  }
 
   // Body
   let body = fetchOpts.body;
@@ -97,19 +97,14 @@ export async function apiFetch(path, opts = {}) {
     if (!headers["Content-Type"] && !headers["content-type"]) {
       headers["Content-Type"] = "application/json";
     }
-  } else if (
-    typeof body === "string" &&
-    !isFormData &&
-    !headers["Content-Type"] &&
-    !headers["content-type"]
-  ) {
+  } else if (typeof body === "string" && !isFormData && !headers["Content-Type"] && !headers["content-type"]) {
     const t = body.trim();
     if (t.startsWith("{") || t.startsWith("[")) {
       headers["Content-Type"] = "application/json";
     }
   }
 
-  // Per GET/HEAD, evita body
+  // Per GET/HEAD, evita body (alcuni server/proxy lo odiano)
   const method = (fetchOpts.method || "GET").toUpperCase();
   if ((method === "GET" || method === "HEAD") && body != null) {
     body = undefined;
@@ -120,8 +115,7 @@ export async function apiFetch(path, opts = {}) {
       ? path
       : joinUrl(API_BASE, path);
 
-  const controller =
-    typeof AbortController !== "undefined" ? new AbortController() : null;
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   let res;
@@ -134,12 +128,8 @@ export async function apiFetch(path, opts = {}) {
       signal: controller ? controller.signal : undefined,
     });
   } catch (e) {
-    const aborted =
-      controller &&
-      e &&
-      (e.name === "AbortError" || String(e).includes("AbortError"));
-
-      throw new Error(
+    const aborted = controller && e && (e.name === "AbortError" || String(e).includes("AbortError"));
+    throw new Error(
       aborted
         ? `Timeout API dopo ${timeoutMs}ms. URL: ${url}`
         : `Impossibile raggiungere l’API (Failed to fetch). URL: ${url} — controlla API_BASE, HTTPS e CORS.`
@@ -168,8 +158,10 @@ export async function apiFetch(path, opts = {}) {
   // Errore: status non ok, oppure payload {ok:false}
   if (!res.ok || (data && data.ok === false)) {
     const msg =
-      (data && (data.error || data.message)) || `Errore API (${res.status})`;
+      (data && (data.error || data.message)) ||
+      `Errore API (${res.status})`;
 
+    // Migliora debug: include status+url in dev
     const err = new Error(msg);
     err.status = res.status;
     err.url = url;
@@ -178,11 +170,6 @@ export async function apiFetch(path, opts = {}) {
   }
 
   return data ?? { ok: true };
-}
-
-// opzionale: se in qualche file vuoi chiamare esplicitamente "auth"
-export function apiAuthFetch(path, opts = {}) {
-  return apiFetch(path, { ...opts, auth: true });
 }
 
 export { API_BASE };
