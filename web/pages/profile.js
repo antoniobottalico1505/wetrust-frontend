@@ -163,12 +163,25 @@ export default function ProfilePage() {
       }
 
       await refresh();
-      setMsg("Onboarding avviato ✅");
-    } catch (e) {
-      setMsg(e?.message || "Errore nell'apertura onboarding Stripe.");
-    } finally {
-      setLoading(false);
+    setMsg("Onboarding avviato ✅");
+  } catch (e) {
+    const m = String(e?.message || "");
+    if (
+      m.toLowerCase().includes("complete your platform profile") ||
+      m.toLowerCase().includes("platform profile") ||
+      m.includes("dashboard.stripe.com/connect/accounts/overview")
+    ) {
+      window.open(
+        "https://dashboard.stripe.com/connect/accounts/overview",
+        "_blank",
+        "noopener,noreferrer"
+      );
+      setMsg("Apri la dashboard Stripe e completa il questionario, poi riprova ✅");
+      return;
     }
+    setMsg(e?.message || "Errore nell'apertura onboarding Stripe.");
+  } finally {
+    setLoading(false);
   }
 
   if (!ready) {
