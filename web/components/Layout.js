@@ -97,7 +97,7 @@ export default function Layout({ title = "WeTrust", children }) {
   letter-spacing: 0.8px;
   text-transform: uppercase;
 
-  color: var(--ink);
+  color: var(--cyan);              /* << azzurro come i link */
   background: rgba(15, 23, 42, 0.92);
   border: 1px solid rgba(148, 163, 184, 0.4);
   border-radius: 4px;
@@ -105,16 +105,9 @@ export default function Layout({ title = "WeTrust", children }) {
   cursor: pointer;
 }
 
-.langBtn.flag::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: 4px;
-  height: 4px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, var(--cyan), var(--mint));
-  opacity: 0.95;
+.langBtn.flag:hover {
+  color: var(--mint);
+  border-color: rgba(0, 224, 160, 0.55);
 }
 
 .langBtn.flag.it { box-shadow: 0 0 0 2px rgba(0, 224, 160, 0.18); }
