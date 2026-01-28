@@ -204,8 +204,22 @@ export default function RequestDetail({ id }) {
     }
 
     // ✅ carta: mostra PaymentElement
-    setClientSecret(data?.clientSecret || null);
-    if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee inclusa)`);
+const cs = data?.clientSecret || data?.client_secret || null;
+
+// Se manca la publishable key sul frontend, Elements non può apparire
+if (!stripePromise) {
+  setMsg("Checkout non disponibile: manca NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY sul frontend.");
+  return;
+}
+
+if (!cs) {
+  setMsg("Checkout non disponibile: Stripe non ha restituito clientSecret (controlla Stripe config / Connect).");
+  return;
+}
+
+setClientSecret(cs);
+if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee inclusa)`);
+
   } catch (err) {
   setMsg(err?.message || "Errore avvio pagamento");
 }
@@ -332,18 +346,12 @@ export default function RequestDetail({ id }) {
   }}
 />
                 </Elements>
-              ) : (
-                <div className="card">
-                  <h3>Pagamento</h3>
-                  <p className="hint">
-                    Per il checkout Stripe serve impostare{" "}
-                    <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> sul web e togliere{" "}
-                    <code>MOCK_STRIPE</code> sull’API.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+             ) : (
+  <div className="card">
+    <h3>Pagamento</h3>
+    <p className="hint">Clicca “Paga (carta)” per vedere i metodi di pagamento.</p>
+  </div>
+)}
 
           <style jsx>{`
             .msgTop {
