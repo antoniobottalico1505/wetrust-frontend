@@ -74,20 +74,13 @@ export async function apiFetch(path, opts = {}) {
 
   const headers = headersToObject(fetchOpts.headers);
 
-<<<<<<< HEAD
   // Aggiunge token se disponibile (serve per /stripe/connect/onboard e per le API protette)
   if (auth !== false) {
     const token = readToken();
     if (token && !headers.Authorization) {
       headers.Authorization = `Bearer ${token}`;
     }
-=======
-  // Aggiunge token se disponibile
-  if (auth !== false) {
-    const token = readToken();
-    if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
->>>>>>> a7c1c41 (Integrate Stripe onboarding + payments flow)
-  }
+}
 
   // Body
   let body = fetchOpts.body;
@@ -129,13 +122,7 @@ export async function apiFetch(path, opts = {}) {
 
   const controller =
     typeof AbortController !== "undefined" ? new AbortController() : null;
-<<<<<<< HEAD
-  const timer = controller
-    ? setTimeout(() => controller.abort(), timeoutMs)
-    : null;
-=======
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
->>>>>>> a7c1c41 (Integrate Stripe onboarding + payments flow)
 
   let res;
   try {
@@ -148,14 +135,11 @@ export async function apiFetch(path, opts = {}) {
     });
   } catch (e) {
     const aborted =
-<<<<<<< HEAD
       controller &&
       e &&
       (e.name === "AbortError" || String(e).includes("AbortError"));
-=======
-      controller && e && (e.name === "AbortError" || String(e).includes("AbortError"));
->>>>>>> a7c1c41 (Integrate Stripe onboarding + payments flow)
-    throw new Error(
+
+      throw new Error(
       aborted
         ? `Timeout API dopo ${timeoutMs}ms. URL: ${url}`
         : `Impossibile raggiungere l’API (Failed to fetch). URL: ${url} — controlla API_BASE, HTTPS e CORS.`
@@ -183,13 +167,9 @@ export async function apiFetch(path, opts = {}) {
 
   // Errore: status non ok, oppure payload {ok:false}
   if (!res.ok || (data && data.ok === false)) {
-<<<<<<< HEAD
     const msg =
       (data && (data.error || data.message)) || `Errore API (${res.status})`;
 
-=======
-    const msg = (data && (data.error || data.message)) || `Errore API (${res.status})`;
->>>>>>> a7c1c41 (Integrate Stripe onboarding + payments flow)
     const err = new Error(msg);
     err.status = res.status;
     err.url = url;

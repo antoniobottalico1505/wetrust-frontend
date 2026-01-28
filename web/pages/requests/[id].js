@@ -193,23 +193,6 @@ export default function RequestDetail({ id }) {
       body: { use_wallet: !!useWallet },
     });
 
-<<<<<<< HEAD
-      // Voucher/wallet: non serve Stripe Elements
-      if (data?.walletPaid) {
-        setClientSecret(null);
-        setMatch(data?.match || match);
-        setMsg(`Pagamento con voucher ✅ (fondi bloccati) — Totale: ${centsToEUR(data.amount_cents)}`);
-        await load();
-        return;
-      }
-
-      // Carta: ritorna clientSecret per PaymentElement
-      setClientSecret(data?.clientSecret || null);
-      setMatch(data?.match || match);
-      if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee inclusa)`);
-    } catch (err) {
-      setMsg(err?.message || "Errore avvio pagamento");
-=======
     setMatch(data?.match || match);
 
     // ✅ voucher/wallet: nessun checkout Stripe
@@ -218,15 +201,14 @@ export default function RequestDetail({ id }) {
       setMsg("Pagato con voucher ✅ (fondi bloccati)");
       await load();
       return;
->>>>>>> a7c1c41 (Integrate Stripe onboarding + payments flow)
     }
 
     // ✅ carta: mostra PaymentElement
     setClientSecret(data?.clientSecret || null);
     if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee inclusa)`);
   } catch (err) {
-    setMsg(err?.message || "Errore avvio pagamento");
-  }
+  setMsg(err?.message || "Errore avvio pagamento");
+}
 }
 
   async function release() {
