@@ -159,6 +159,41 @@ const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACC
   const stream =
     STREAM_API_KEY && STREAM_API_SECRET ? StreamChat.getInstance(STREAM_API_KEY, STREAM_API_SECRET) : null;
 
+// ---------- CHAT MESSAGES (in-memory demo) ----------
+const messagesByMatch = new Map(); // matchId -> [{id, matchId, userId, text, createdAt}]
+
+app.get("/matches/:id/messages", { preHandler: [requireAuth] }, async (request, reply) => {
+  const { id } = request.params;
+  const m = ensureMatchAccess(request, reply, String(id));
+  if (!m) return;
+
+  const messages = messagesByMatch.get(String(m.id)) || [];
+  return reply.send({ ok: true, messages });
+});
+
+app.post("/matches/:id/messages", { preHandler: [requireAuth] }, async (request, reply) => {
+  const { id } = request.params;
+  const m = ensureMatchAccess(request, reply, String(id));
+  if (!m) return;
+
+  const text = String(request.body?.text || "").trim();
+  if (!text) return reply.code(400).send({ ok: false, error: "Testo mancante" });
+
+  const msg = {
+    id: String(Date.now()),
+    matchId: String(m.id),
+    userId: String(request.user.id),
+    text,
+    createdAt: new Date().toISOString(),
+  };
+
+  const arr = messagesByMatch.get(String(m.id)) || [];
+  arr.push(msg);
+  messagesByMatch.set(String(m.id), arr);
+
+  return reply.send({ ok: true, message: msg, messages: arr });
+});
+
   // ---------------- ROUTES ----------------
   // UNICA route /health (niente duplicati!)
   app.get("/health", async () => ({ ok: true, status: "ok" }));
