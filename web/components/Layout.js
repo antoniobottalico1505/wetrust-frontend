@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Script from "next/script";
 import LanguageToggle from "./LanguageToggle";
+import Head from "next/head";
 
 export default function Layout({ title = "WeTrust", children }) {
   return (
@@ -17,6 +18,7 @@ export default function Layout({ title = "WeTrust", children }) {
             <Link href="/privacy">Privacy</Link>
             <Link href="/login">Accedi</Link>
             <Link href="/register">Registrati</Link>
+<Head><title>{title}</title></Head>
           </nav>
 
           <div className="logo-area">
@@ -76,6 +78,48 @@ export default function Layout({ title = "WeTrust", children }) {
           );
         }
 
+.langBtn.flag {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 9999;
+
+  width: 46px;
+  height: 28px;
+  padding: 0;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+
+  color: var(--ink);
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+
+  cursor: pointer;
+}
+
+.langBtn.flag::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--mint));
+  opacity: 0.95;
+}
+
+.langBtn.flag.it { box-shadow: 0 0 0 2px rgba(0, 224, 160, 0.18); }
+.langBtn.flag.uk { box-shadow: 0 0 0 2px rgba(0, 180, 255, 0.18); }
+
         /* NIENTE PIU' VIOLA: anche visited */
         a,
         a:visited {
@@ -87,19 +131,6 @@ export default function Layout({ title = "WeTrust", children }) {
           text-decoration: underline;
         }
 
-        /* language toggle + hide google banner */
-        .langBtn {
-          position: fixed;
-          top: 12px;
-          right: 12px;
-          z-index: 9999;
-          background: rgba(15, 23, 42, 0.92);
-          border: 1px solid rgba(148, 163, 184, 0.4);
-          border-radius: 999px;
-          padding: 8px 10px;
-          cursor: pointer;
-          font-size: 18px;
-        }
         .goog-te-banner-frame.skiptranslate {
           display: none !important;
         }
@@ -183,48 +214,6 @@ export default function Layout({ title = "WeTrust", children }) {
           opacity: 0.9;
         }
 
-..langBtn.flag {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  z-index: 9999;
-
-  width: 46px;
-  height: 28px;
-  padding: 0;
-
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  font-weight: 900;
-  font-size: 12px;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-
-  color: var(--ink);
-  background: rgba(15, 23, 42, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  border-radius: 4px;
-
-  cursor: pointer;
-}
-
-.langBtn.flag::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: 4px;
-  height: 4px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, var(--cyan), var(--mint));
-  opacity: 0.95;
-}
-
-.langBtn.flag.it { box-shadow: 0 0 0 2px rgba(0, 224, 160, 0.18); }
-.langBtn.flag.uk { box-shadow: 0 0 0 2px rgba(0, 180, 255, 0.18); }
-
         @media (max-width: 800px) {
           .header {
             flex-direction: column;
@@ -237,8 +226,8 @@ export default function Layout({ title = "WeTrust", children }) {
           }
           .logo-full {
             height: 78px;
-          }
         }
+}
       `}</style>
     </>
   );
