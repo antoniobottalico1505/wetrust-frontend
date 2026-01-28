@@ -67,20 +67,22 @@ function headersToObject(h) {
 
 export async function apiFetch(path, opts = {}) {
   // opts.auth === false => NON aggiunge Authorization
-  const { auth, timeoutMs = 30000, ...fetchOpts } = opts;
+  const { auth = true, timeoutMs = 30000, ...fetchOpts } = opts;
 
   const headers = headersToObject(fetchOpts.headers);
 
   // Aggiunge token se disponibile
+if (auth !== false) {
   const token =
-  (typeof window !== "undefined" &&
-    (localStorage.getItem("wetrust_token") ||
-     localStorage.getItem("token") ||
-     sessionStorage.getItem("wetrust_token") ||
-     sessionStorage.getItem("token"))) || null;
+    (typeof window !== "undefined" &&
+      (localStorage.getItem("wetrust_token") ||
+        localStorage.getItem("token") ||
+        sessionStorage.getItem("wetrust_token") ||
+        sessionStorage.getItem("token"))) ||
+    null;
 
-if (token) headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) headers.Authorization = `Bearer ${token}`;
+}
 
   // Body
   let body = fetchOpts.body;
