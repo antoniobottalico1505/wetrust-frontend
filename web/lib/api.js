@@ -15,11 +15,10 @@ const FALLBACK_RENDER_API = "https://wetrust-frontend.onrender.com"; // <-- il t
 const API_BASE =
   ENV_BASE ||
   (typeof window !== "undefined"
-    ? window.location.hostname.endsWith("wetrust.club")
-    ? (window.location.hostname.endsWith("wetrust.club") ||
-       window.location.hostname.endsWith("wetrade.club"))
-      ? FALLBACK_RENDER_API
-      : "/api"
+    ? ((window.location.hostname.endsWith("wetrust.club") ||
+        window.location.hostname.endsWith("wetrade.club"))
+        ? FALLBACK_RENDER_API
+        : "/api")
     : FALLBACK_RENDER_API);
 
 // --- Token helpers (usati per Stripe onboarding + tutte le API protette) ---
