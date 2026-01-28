@@ -183,6 +183,7 @@ export default function ProfilePage() {
   } finally {
     setLoading(false);
   }
+}
 
   if (!ready) {
     return (
