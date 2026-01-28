@@ -15,8 +15,7 @@ const FALLBACK_RENDER_API = "https://wetrust-frontend.onrender.com"; // <-- il t
 const API_BASE =
   ENV_BASE ||
   (typeof window !== "undefined"
-    ? ((window.location.hostname.endsWith("wetrust.club") ||
-        window.location.hostname.endsWith("wetrade.club"))
+    ? (window.location.hostname.endsWith("wetrust.club")
         ? FALLBACK_RENDER_API
         : "/api")
     : FALLBACK_RENDER_API);
