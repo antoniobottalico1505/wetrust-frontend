@@ -6,6 +6,7 @@ import Head from "next/head";
 export default function Layout({ title = "WeTrust", children }) {
   return (
     <>
+<Head><title>{title}</title></Head>
       <div className="page">
         <header className="header">
           {/* LINK A SINISTRA (chiaro) + LOGHI A DESTRA (scuro) */}
@@ -18,7 +19,6 @@ export default function Layout({ title = "WeTrust", children }) {
             <Link href="/privacy">Privacy</Link>
             <Link href="/login">Accedi</Link>
             <Link href="/register">Registrati</Link>
-<Head><title>{title}</title></Head>
           </nav>
 
           <div className="logo-area">
@@ -77,6 +77,10 @@ export default function Layout({ title = "WeTrust", children }) {
             #020617 55%
           );
         }
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+:root { color-scheme: dark; }
 
 .langBtn.flag {
   position: fixed;
@@ -207,20 +211,6 @@ export default function Layout({ title = "WeTrust", children }) {
           opacity: 0.9;
         }
 
-        @media (max-width: 800px) {
-          .header {
-            flex-direction: column;
-          }
-          .nav {
-            margin-right: 0;
-          }
-          .logo-area {
-            margin-left: 0;
-          }
-          .logo-full {
-            height: 78px;
-        }
-}
       `}</style>
     </>
   );
