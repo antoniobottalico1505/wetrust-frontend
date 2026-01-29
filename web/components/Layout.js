@@ -263,5 +263,9 @@ html { -webkit-text-size-adjust: 100%; }
   .logo-full {
     height: 64px;
   }
+      `}</style>
+    </>
+  );
 }
+
 
