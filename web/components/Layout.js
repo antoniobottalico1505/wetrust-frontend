@@ -8,10 +8,7 @@ export default function Layout({ title = "WeTrust", children }) {
     <>
 <Head>
   <title>{title}</title>
-  <meta
-    name="viewport"
-    content="width=1120, initial-scale=0.35, maximum-scale=1, viewport-fit=cover"
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 </Head>
       <div className="page">
         <header className="header">
@@ -216,6 +213,45 @@ html { -webkit-text-size-adjust: 100%; }
         .footer-note {
           opacity: 0.9;
         }
+@media (max-width: 900px) {
+  .header {
+    flex-direction: column;
+    padding: 12px 14px 4px;
+    gap: 10px;
+  }
+
+  .nav {
+    margin-right: 0;
+    gap: 8px;
+  }
+
+  .nav :global(a) {
+    padding: 6px 9px;
+    font-size: 13px;
+  }
+
+  .logo-area {
+    margin-left: 0;
+  }
+
+  .logo-full {
+    height: 72px;
+  }
+
+  .main {
+    padding: 14px;
+  }
+
+  .footer {
+    padding: 14px 14px 18px;
+  }
+}
+
+@media (max-width: 420px) {
+  .logo-full {
+    height: 64px;
+  }
+}
 
       `}</style>
     </>
