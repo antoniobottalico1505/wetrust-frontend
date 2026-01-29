@@ -164,8 +164,7 @@ export default function PrivacyPage() {
 
           <h2>13) Contatti</h2>
           <p>
-            Per richieste privacy: <strong>[we20trust25@gmail.com]</strong>. Per altri contatti:<Link href="/contact">Contatti</Link>.
-            <Link href="/contact">Contatti</Link>.
+            Per richieste privacy: <strong>[we20trust25@gmail.com]</strong>. Per altri contatti: <Link href="/contact">Contatti</Link>.
           </p>
 
         </section>
