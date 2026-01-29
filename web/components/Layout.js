@@ -6,7 +6,13 @@ import Head from "next/head";
 export default function Layout({ title = "WeTrust", children }) {
   return (
     <>
-<Head><title>{title}</title></Head>
+<Head>
+  <title>{title}</title>
+  <meta
+    name="viewport"
+    content="width=1120, initial-scale=0.35, maximum-scale=1, viewport-fit=cover"
+  />
+</Head>
       <div className="page">
         <header className="header">
           {/* LINK A SINISTRA (chiaro) + LOGHI A DESTRA (scuro) */}
