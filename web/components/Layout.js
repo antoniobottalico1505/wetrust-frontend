@@ -13,6 +13,11 @@ export default function Layout({ title = "WeTrust", children }) {
       <div className="page">
         <header className="header">
           {/* LINK A SINISTRA (chiaro) + LOGHI A DESTRA (scuro) */}
+<div className="logo-area">
+            <img src="/WeT.png" alt="WeTrust symbol" className="logo-icon" />
+            <img src="/WeTrust.png" alt="WeTrust logo" className="logo-full" />
+          </div>
+
           <nav className="nav">
             <Link href="/">Home</Link>
             <Link href="/requests">Richieste</Link>
@@ -23,11 +28,6 @@ export default function Layout({ title = "WeTrust", children }) {
             <Link href="/login">Accedi</Link>
             <Link href="/register">Registrati</Link>
           </nav>
-
-          <div className="logo-area">
-            <img src="/WeT.png" alt="WeTrust symbol" className="logo-icon" />
-            <img src="/WeTrust.png" alt="WeTrust logo" className="logo-full" />
-          </div>
         </header>
 
         <LanguageToggle />
@@ -146,21 +146,21 @@ html { -webkit-text-size-adjust: 100%; }
           flex-direction: column;
         }
 
-        .header {
-          max-width: 1120px;
-          margin: 0 auto;
-          padding: 16px 20px 4px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 16px;
-        }
+       .header {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 16px 20px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
 
         .nav {
           display: flex;
           gap: 12px;
           font-size: 14px;
-          margin-right: 64px; /* link un po’ più a sinistra */
           flex-wrap: wrap;
           justify-content: center;
         }
@@ -172,11 +172,19 @@ html { -webkit-text-size-adjust: 100%; }
         }
 
         .logo-area {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          margin-left: 64px; /* loghi un po’ più a destra */
-        }
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: 0; /* non serve più "a destra" ora che è sopra */
+  padding: 10px 16px;
+
+  border-radius: 999px; /* ellisse */
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+}
 
         .logo-icon {
           width: 44px;
