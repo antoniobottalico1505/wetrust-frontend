@@ -216,11 +216,27 @@ html { -webkit-text-size-adjust: 100%; }
 @media (max-width: 900px) {
   .header {
     flex-direction: column;
+    align-items: center;
     padding: 12px 14px 4px;
     gap: 10px;
   }
 
+  /* ✅ INVERTI SOLO SU MOBILE/TABLET: LOGHI SOPRA, NAV SOTTO */
+  .logo-area {
+    order: 0;
+    margin-left: 0;
+
+    /* ✅ ellisse nera dietro i loghi (solo mobile/tablet) */
+    padding: 10px 16px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(6px);
+  }
+
   .nav {
+    order: 1;
     margin-right: 0;
     gap: 8px;
   }
@@ -228,10 +244,6 @@ html { -webkit-text-size-adjust: 100%; }
   .nav :global(a) {
     padding: 6px 9px;
     font-size: 13px;
-  }
-
-  .logo-area {
-    margin-left: 0;
   }
 
   .logo-full {
@@ -253,7 +265,3 @@ html { -webkit-text-size-adjust: 100%; }
   }
 }
 
-      `}</style>
-    </>
-  );
-}
