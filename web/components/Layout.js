@@ -183,7 +183,7 @@ html { -webkit-text-size-adjust: 100%; }
         }
 
         .logo-full {
-          height: 120px;
+          height: 160px;
           width: auto;
         }
 
@@ -234,8 +234,9 @@ html { -webkit-text-size-adjust: 100%; }
   /* ✅ fascia sfumata verso il basso */
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.55),
-    rgba(0, 0, 0, 0)
+  rgba(0, 0, 0, 0.82) 0%,
+  rgba(0, 0, 0, 0.55) 55%,
+  rgba(0, 0, 0, 0) 100%
   );
 
   border: 0;
@@ -256,7 +257,7 @@ html { -webkit-text-size-adjust: 100%; }
   }
 
   .logo-full {
-    height: 96px;
+    height: 116px;
   }
 
   .main {
@@ -270,7 +271,7 @@ html { -webkit-text-size-adjust: 100%; }
 
 @media (max-width: 420px) {
   .logo-full {
-    height: 84px;
+    height: 104px;
   }
       `}</style>
     </>
