@@ -321,7 +321,7 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
                   <>
                     <div className="row">
                       <button type="button" className="btn" onClick={() => startPay(false)}>
-                        Paga (carta)
+                        Paga
                       </button>
                       <button type="button" className="btn ghost" onClick={() => startPay(true)}>
                         Paga usando voucher
