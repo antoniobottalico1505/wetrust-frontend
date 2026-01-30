@@ -25,7 +25,6 @@ export default function Layout({ title = "WeTrust", children }) {
           </nav>
 
           <div className="logo-area">
-            <img src="/WeT.png" alt="WeTrust symbol" className="logo-icon" />
             <img src="/WeTrust.png" alt="WeTrust logo" className="logo-full" />
           </div>
         </header>
@@ -174,7 +173,7 @@ html { -webkit-text-size-adjust: 100%; }
         .logo-area {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 0;
           margin-left: 64px; /* loghi un po’ più a destra */
         }
 
@@ -184,7 +183,7 @@ html { -webkit-text-size-adjust: 100%; }
         }
 
         .logo-full {
-          height: 90px;
+          height: 120px;
           width: auto;
         }
 
@@ -221,19 +220,29 @@ html { -webkit-text-size-adjust: 100%; }
     gap: 10px;
   }
 
-  /* ✅ INVERTI SOLO SU MOBILE/TABLET: LOGHI SOPRA, NAV SOTTO */
-  .logo-area {
-    order: 0;
-    margin-left: 0;
+.logo-area {
+  order: 0;
+  margin-left: 0;
 
-    /* ✅ ellisse nera dietro i loghi (solo mobile/tablet) */
-    padding: 10px 16px;
-    border-radius: 999px;
-    background: rgba(0, 0, 0, 0.45);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-    backdrop-filter: blur(6px);
-  }
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  padding: 14px 0 18px;
+
+  /* ✅ fascia sfumata verso il basso */
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.55),
+    rgba(0, 0, 0, 0)
+  );
+
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
 
   .nav {
     order: 1;
@@ -247,7 +256,7 @@ html { -webkit-text-size-adjust: 100%; }
   }
 
   .logo-full {
-    height: 72px;
+    height: 96px;
   }
 
   .main {
@@ -261,7 +270,7 @@ html { -webkit-text-size-adjust: 100%; }
 
 @media (max-width: 420px) {
   .logo-full {
-    height: 64px;
+    height: 84px;
   }
       `}</style>
     </>

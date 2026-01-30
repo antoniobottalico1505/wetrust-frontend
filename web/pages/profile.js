@@ -257,17 +257,6 @@ export default function ProfilePage() {
             {loading ? "Apro…" : "Attiva pagamenti (Stripe Connect)"}
           </button>
 
-          <Link
-  href="/stripe/onboard"
-  className={`btnLink ${loading ? "disabled" : ""}`}
-  aria-disabled={loading}
-  onClick={(e) => {
-    if (loading) e.preventDefault();
-  }}
->
-  {loading ? "Apro…" : "Attiva pagamenti (Stripe Connect)"}
-</Link>
-
           <hr className="hr" />
 
           <h2>Riscatta voucher</h2>
