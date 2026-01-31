@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 require("dotenv").config();
 
@@ -39,7 +39,7 @@ const STREAM_API_KEY = process.env.STREAM_API_KEY || "";
 const STREAM_API_SECRET = process.env.STREAM_API_SECRET || "";
 // ---------------- PAY CONFIG ----------------
 const PLATFORM_FEE_BPS = Number(process.env.PLATFORM_FEE_BPS || 1500); // 1500 = 15%
-const PLATFORM_FEE_FIXED_CENTS = Number(process.env.PLATFORM_FEE_FIXED_CENTS || 49); // 49 = €0,49
+const PLATFORM_FEE_FIXED_CENTS = Number(process.env.PLATFORM_FEE_FIXED_CENTS || 49); // 49 = Ôé¼0,49
 const VOUCHERS_RAW = process.env.VOUCHERS || "TEST10:1000,TEST25:2500"; // CODE:cents,...
 const voucherMap = new Map(
   VOUCHERS_RAW.split(",")
@@ -217,7 +217,7 @@ app.post("/vouchers/redeem", { preHandler: [requireAuth] }, async (request, repl
   const cents = voucherMap.get(code);
 
   if (!cents || cents <= 0) return reply.code(400).send({ ok: false, error: "Voucher non valido" });
-  if (redeemedVouchers.has(code)) return reply.code(400).send({ ok: false, error: "Voucher già usato" });
+  if (redeemedVouchers.has(code)) return reply.code(400).send({ ok: false, error: "Voucher gi├á usato" });
 
   redeemedVouchers.add(code);
 
@@ -238,7 +238,7 @@ app.post("/stripe/connect/onboard", { preHandler: [requireAuth] }, async (reques
     `${request.headers["x-forwarded-proto"] || "https"}://${request.headers.host}`;
 
   try {
-    // 1) se l’utente ha già un account Stripe, riusalo
+    // 1) se lÔÇÖutente ha gi├á un account Stripe, riusalo
     let accountId = request.user.stripeAccountId;
 
     // 2) altrimenti crealo
@@ -249,7 +249,7 @@ app.post("/stripe/connect/onboard", { preHandler: [requireAuth] }, async (reques
         capabilities: { transfers: { requested: true } },
       });
       accountId = acct.id;
-      request.user.stripeAccountId = accountId; // <- salva sul profilo utente (qui è in-memory)
+      request.user.stripeAccountId = accountId; // <- salva sul profilo utente (qui ├¿ in-memory)
     }
 
     // 3) genera il link di onboarding
@@ -334,7 +334,7 @@ app.get("/stripe/connect/onboard", { preHandler: [requireAuth] }, async (request
     if (String(password).length < 8) return reply.code(400).send({ ok: false, error: "Password min 8 caratteri." });
 
     if (users.find((u) => (u.email || "").toLowerCase() === cleanEmail))
-      return reply.code(409).send({ ok: false, error: "Email già registrata." });
+      return reply.code(409).send({ ok: false, error: "Email gi├á registrata." });
 
     const u = {
       id: String(Date.now()),
@@ -373,7 +373,7 @@ app.post("/auth/sms/send", async (request, reply) => {
   const cleanPhone = String(phone || "").trim();
   if (!cleanPhone) return reply.code(400).send({ ok: false, error: "Numero richiesto." });
 
-  // ✅ Se Verify è configurato, usa Verify (OTP serio, niente codice in RAM)
+  // Ô£à Se Verify ├¿ configurato, usa Verify (OTP serio, niente codice in RAM)
   if (twilioClient && TWILIO_VERIFY_SERVICE_SID) {
     try {
       const r = await twilioClient.verify.v2
@@ -387,7 +387,7 @@ app.post("/auth/sms/send", async (request, reply) => {
     }
   }
 
-  // 🔁 Fallback: vecchia logica (codice in memoria + SMS normale)
+  // ­ƒöü Fallback: vecchia logica (codice in memoria + SMS normale)
   const code = randomCode();
   smsCodes.set(cleanPhone, { code, expiresAt: Date.now() + 5 * 60 * 1000 });
 
@@ -404,7 +404,7 @@ app.post("/auth/sms/send", async (request, reply) => {
     }
   }
 
-  // per debug/dev: ritorno il codice se Twilio non è configurato
+  // per debug/dev: ritorno il codice se Twilio non ├¿ configurato
   return reply.send({ ok: true, sent: true, devCode: twilioClient ? undefined : code });
 });
 
@@ -417,7 +417,7 @@ app.post("/auth/sms/verify", async (request, reply) => {
   if (!cleanPhone) return reply.code(400).send({ ok: false, error: "Numero richiesto." });
   if (!cleanCode) return reply.code(400).send({ ok: false, error: "Codice richiesto." });
 
-  // ✅ Se Verify è configurato, verifica tramite Twilio Verify
+  // Ô£à Se Verify ├¿ configurato, verifica tramite Twilio Verify
   if (twilioClient && TWILIO_VERIFY_SERVICE_SID) {
     try {
       const check = await twilioClient.verify.v2
@@ -428,7 +428,7 @@ app.post("/auth/sms/verify", async (request, reply) => {
         return reply.code(400).send({ ok: false, error: "Codice errato o scaduto." });
       }
 
-      // login/creazione utente come già fai tu
+      // login/creazione utente come gi├á fai tu
       let u = users.find((x) => x.phone === cleanPhone);
       if (!u) {
         u = {
@@ -451,7 +451,7 @@ walletCents: 0,
     }
   }
 
-  // 🔁 Fallback: vecchia logica in memoria
+  // ­ƒöü Fallback: vecchia logica in memoria
   const entry = smsCodes.get(cleanPhone);
   if (!entry || entry.expiresAt < Date.now()) return reply.code(400).send({ ok: false, error: "Codice scaduto." });
   if (entry.code !== cleanCode) return reply.code(400).send({ ok: false, error: "Codice errato." });
@@ -532,6 +532,12 @@ walletCents: 0,
   });
 
   // ---------------- REQUESTS ----------------
+app.get("/requests", async (request, reply) => {
+  // Mostra pubblicamente solo richieste ancora disponibili
+  const list = requests.filter((r) => r.status === "OPEN");
+  return reply.send({ ok: true, items: list, requests: list });
+});
+
  app.post("/requests", { preHandler: [requireAuth] }, async (request, reply) => {
   const { title, description, city } = request.body || {};
   if (!title) return reply.code(400).send({ ok: false, error: "Titolo obbligatorio" });
@@ -551,6 +557,24 @@ walletCents: 0,
   return reply.send({ ok: true, item: r });
 });
 
+app.get("/requests/feed", { preHandler: [requireAuth] }, async (request, reply) => {
+  const uid = String(request.user.id);
+
+  // requestId che l'utente "vede" perché è coinvolto (ha accettato come helper o è il requester)
+  const visibleIds = new Set(
+    matches
+      .filter((m) => String(m.helperId) === uid || String(m.userId) === uid)
+      .map((m) => String(m.requestId))
+  );
+
+  const items = requests
+    .filter((r) => r.status === "OPEN" || visibleIds.has(String(r.id)))
+    .slice()
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+  return reply.send({ ok: true, items });
+});
+
 app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) => {
   const { id } = request.params;
 
@@ -558,6 +582,14 @@ app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) =
   if (!reqItem) return reply.code(404).send({ ok: false, error: "Request non trovata" });
 
   const match = matches.find((m) => String(m.requestId) === String(reqItem.id)) || null;
+// ­ƒöÆ Se la richiesta non ├¿ OPEN, non deve essere visibile ad altri utenti
+const isOwner = String(reqItem.userId) === String(request.user.id);
+const isHelper = !!(match && String(match.helperId) === String(request.user.id));
+
+if (reqItem.status !== "OPEN" && !isOwner && !isHelper) {
+  // 404 per non ÔÇ£leakareÔÇØ lÔÇÖesistenza della richiesta
+  return reply.code(404).send({ ok: false, error: "Request non trovata" });
+}
 
   // aggiorna status payment da Stripe (se presente)
   if (match && stripe && match.payment_intent_id) {
@@ -585,9 +617,15 @@ app.post("/requests/:id/accept", { preHandler: [requireAuth] }, async (request, 
     return reply.code(400).send({ ok: false, error: "Non puoi accettare la tua richiesta" });
   }
 
-  // evita duplicati: se esiste già un match per questa request, ritornalo
-  let existing = matches.find((m) => String(m.requestId) === String(reqItem.id));
-  if (existing) return reply.send({ ok: true, match: existing });
+ // evita duplicati: se esiste gi├á un match per questa request
+let existing = matches.find((m) => String(m.requestId) === String(reqItem.id));
+if (existing) {
+  // se non sei lÔÇÖhelper di quel match ÔåÆ la richiesta ├¿ gi├á presa
+  if (String(existing.helperId) !== String(request.user.id)) {
+    return reply.code(409).send({ ok: false, error: "Richiesta gi├á accettata" });
+  }
+  return reply.send({ ok: true, match: existing });
+}
 
   const m = {
     id: String(Date.now()),
@@ -663,9 +701,9 @@ app.post("/matches/:id/price", { preHandler: [requireAuth] }, async (request, re
   const m = ensureMatchAccess(request, reply, String(id));
   if (!m) return;
 
-  // solo helper può impostare prezzo
+  // solo helper pu├▓ impostare prezzo
   if (String(m.helperId) !== String(request.user.id)) {
-    return reply.code(403).send({ ok: false, error: "Solo l’helper può impostare il prezzo" });
+    return reply.code(403).send({ ok: false, error: "Solo lÔÇÖhelper pu├▓ impostare il prezzo" });
   }
 
   const priceCents = Number(request.body?.price_cents || 0);
@@ -687,9 +725,9 @@ app.post("/matches/:id/pay", { preHandler: [requireAuth] }, async (request, repl
   const m = ensureMatchAccess(request, reply, String(id));
   if (!m) return;
 
-  // solo requester può pagare
+  // solo requester pu├▓ pagare
   if (String(m.userId) !== String(request.user.id)) {
-    return reply.code(403).send({ ok: false, error: "Solo il richiedente può pagare" });
+    return reply.code(403).send({ ok: false, error: "Solo il richiedente pu├▓ pagare" });
   }
 
   const useWallet = !!request.body?.use_wallet;
@@ -736,24 +774,27 @@ app.post("/matches/:id/pay", { preHandler: [requireAuth] }, async (request, repl
   }
 
   try {
-    const pi = await stripe.paymentIntents.create({
-      amount: amountCents,
-      currency: "eur",
-      capture_method: "manual",
-      automatic_payment_methods: { enabled: true },
+const pi = await stripe.paymentIntents.create({
+  amount: amountCents,
+  currency: "eur",
 
-      // Connect: manda i fondi all’helper e trattieni fee
-      application_fee_amount: feeCents,
-      transfer_data: { destination: helper.stripeAccountId },
-      on_behalf_of: helper.stripeAccountId,
+  // ­ƒöÑ MOSTRA TUTTI I METODI COMPATIBILI
+  automatic_payment_methods: { enabled: true },
+  ...(process.env.STRIPE_PMC_ID ? { payment_method_configuration: process.env.STRIPE_PMC_ID } : {}),
 
-      metadata: {
-        matchId: String(m.id),
-        requestId: String(m.requestId),
-        userId: String(m.userId),
-        helperId: String(m.helperId),
-      },
-    });
+  // ­ƒöÉ FONDI TRATTENUTI SULLA PIATTAFORMA
+  transfer_group: `match_${String(m.id)}`,
+
+  metadata: {
+    matchId: String(m.id),
+    requestId: String(m.requestId),
+    userId: String(m.userId),
+    helperId: String(m.helperId),
+    price_cents: String(priceCents),
+    fee_cents: String(feeCents),
+    amount_cents: String(amountCents),
+  },
+});
 
     m.payment_intent_id = pi.id;
     m.payment_status = pi.status;
@@ -779,7 +820,7 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
 
   // solo requester rilascia
   if (String(m.userId) !== String(request.user.id)) {
-    return reply.code(403).send({ ok: false, error: "Solo il richiedente può rilasciare" });
+    return reply.code(403).send({ ok: false, error: "Solo il richiedente pu├▓ rilasciare" });
   }
 
   const helper = users.find((u) => String(u.id) === String(m.helperId)) || null;
@@ -818,29 +859,38 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
   if (!stripe) return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
   if (!m.payment_intent_id) return reply.code(400).send({ ok: false, error: "Pagamento non avviato" });
 
-  try {
+   try {
     const pi = await stripe.paymentIntents.retrieve(m.payment_intent_id);
 
-    if (pi.status === "succeeded") {
-      m.payment_status = "succeeded";
-      m.status = "RELEASED";
-      m.releasedAt = new Date().toISOString();
-      return reply.send({ ok: true, match: m });
+    if (pi.status !== "succeeded") {
+      return reply.code(400).send({
+        ok: false,
+        error: `Pagamento non completato (status: ${pi.status})`,
+      });
     }
 
-    if (pi.status !== "requires_capture") {
-      return reply.code(400).send({ ok: false, error: `Pagamento non rilasciabile (status: ${pi.status})` });
+    if (!helper.stripeAccountId) {
+      return reply.code(400).send({ ok: false, error: "Helper non ha Stripe Connect attivo" });
     }
 
-    const captured = await stripe.paymentIntents.capture(m.payment_intent_id);
+    // ­ƒÆ© trasferisci SOLO il prezzo allÔÇÖhelper (la fee resta alla piattaforma)
+    const tr = await stripe.transfers.create({
+      amount: Number(m.price_cents || 0),
+      currency: "eur",
+      destination: helper.stripeAccountId,
+      transfer_group: `match_${String(m.id)}`,
+source_transaction: pi.latest_charge,
+      metadata: { matchId: String(m.id), requestId: String(m.requestId) },
+    });
 
-    m.payment_status = captured.status;
+    m.transfer_id = tr.id;
     m.status = "RELEASED";
+    m.payment_status = "released";
     m.releasedAt = new Date().toISOString();
 
     return reply.send({ ok: true, match: m });
   } catch (e) {
-    request.log.error(e, "Stripe capture failed");
+    request.log.error(e, "Stripe release failed");
     return reply.code(500).send({ ok: false, error: e.message || "Errore rilascio pagamento" });
   }
 });
