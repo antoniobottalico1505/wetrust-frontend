@@ -284,9 +284,24 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
                 <Link href="/requests" legacyBehavior>
                   <a className="ghost">Torna alle richieste</a>
                 </Link>
+<<<<<<< HEAD
               </div>
             </article>
           </div>
+=======
+              ) : !match && String(user.id) !== String(reqData.userId) ? (
+                <button onClick={accept} className="btn">
+                  Accetta richiesta
+                </button>
+              ) : null}
+
+                        {match ? (
+                <Link href={`/chat/${match.id}`} className="btn ghost">
+                  Apri chat
+                </Link>
+              ) : null}
+            </div>
+>>>>>>> ffff469 (Fix apiFetch token + requests/[id] JSX)
 
           {match && (
             <div className="grid">
@@ -317,6 +332,7 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
                   </div>
                 )}
 
+<<<<<<< HEAD
                 {user && String(user.id) === String(match.userId) && (
                   <>
                     <div className="row">
@@ -327,6 +343,19 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
                         Paga usando voucher
                       </button>
                     </div>
+=======
+{/* Richiedente: paga e rilascia */}
+{user && match && String(user.id) === String(match.userId) && (
+  <>
+    <div className="row">
+      <button className="btn" onClick={() => startPay(false)}>
+        Paga
+      </button>
+      <button className="btn ghost" onClick={() => startPay(true)}>
+        Paga usando voucher
+      </button>
+    </div>
+>>>>>>> ffff469 (Fix apiFetch token + requests/[id] JSX)
 
                     <div className="row">
                       <button type="button" className="btn danger" onClick={release}>
@@ -337,6 +366,7 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
                 )}
               </div>
 
+<<<<<<< HEAD
               {clientSecret && stripePromise ? (
                 <Elements stripe={stripePromise} options={{ clientSecret }}>
                   <PayBox
@@ -351,9 +381,27 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
                   <h3>Pagamento</h3>
                   <p className="hint">
                     Clicca “Paga (carta)” per vedere i metodi di pagamento.
+=======
+              </div>
+
+              <div className="card">
+                <h3>Pagamento</h3>
+
+                {clientSecret && stripePromise ? (
+                  <Elements stripe={stripePromise} options={{ clientSecret }}>
+                    <PayBox match={match} onPaid={() => load()} />
+                  </Elements>
+                ) : (
+                  <p className="hint">
+                    I metodi di pagamento saranno disponibili e il trasferimento avverrà quando il destinatario avrà creato un account Stripe Express dalla sezione{" "}
+                    <Link href="/profile" className="ghost">
+                      Profilo
+                    </Link>
+                    .
+>>>>>>> ffff469 (Fix apiFetch token + requests/[id] JSX)
                   </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 
