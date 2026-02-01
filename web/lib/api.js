@@ -71,7 +71,6 @@ export async function apiFetch(path, opts = {}) {
 
   const headers = headersToObject(fetchOpts.headers);
 
-<<<<<<< HEAD
   // Aggiunge token se disponibile
 if (auth !== false) {
   const token =
@@ -84,11 +83,10 @@ if (auth !== false) {
 
   if (token) headers.Authorization = `Bearer ${token}`;
 }
-=======
+
   // Aggiunge token se disponibile (opts.auth === false => NON aggiunge Authorization)
   const token = auth === false ? null : readToken();
   if (token) headers.Authorization = `Bearer ${token}`;
->>>>>>> ffff469 (Fix apiFetch token + requests/[id] JSX)
 
   // Body
   let body = fetchOpts.body;
