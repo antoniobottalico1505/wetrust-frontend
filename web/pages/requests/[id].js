@@ -275,23 +275,17 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
     </button>
   ) : null}
 
-  <div className="actions">
-    {match ? (
-      <Link href={`/chat/${match.id}`} legacyBehavior>
-        <a className="ghost">Apri chat</a>
-      </Link>
-    ) : !match && String(user.id) !== String(reqData.userId) ? (
-      <button type="button" onClick={accept} className="btn">
-        Accetta richiesta
-      </button>
-    ) : null}
-
-    <Link href="/requests" legacyBehavior>
-      <a className="ghost">Torna alle richieste</a>
+<div className="actions">
+  {match ? (
+    <Link href={`/chat/${match.id}`} legacyBehavior>
+      <a className="ghost">Apri chat</a>
     </Link>
-  </div>
+  ) : null}
+
+  <Link href="/requests" legacyBehavior>
+    <a className="ghost">Torna alle richieste</a>
+  </Link>
 </div>
-</article>
 </div>
 
           {match && (
@@ -364,22 +358,35 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
         </Elements>
       ) : (
         <p className="hint">
-          I metodi di pagamento saranno disponibili e il trasferimento avverrà quando il destinatario avrà creato un account Stripe Express dalla sezione{" "}
-          <Link href="/profile" legacyBehavior>
-            <a className="ghost">Profilo</a>
-          </Link>
-          .
-        </p>
+  I metodi di pagamento saranno disponibili e il trasferimento avverrà quando il destinatario avrà creato un account Stripe Express dalla sezione{" "}
+  <Link href="/profile" legacyBehavior>
+    <a className="profileLink">Profilo</a>
+  </Link>
+  .
+</p>
       )}
     </div>
   </div>
 )}
+</article>
+</div>
 
           <style jsx>{`
             .msgTop {
               font-size: 13px;
               margin: 6px 0 10px;
             }
+.profileLink {
+  color: #00b4ff;
+  text-decoration: none;
+  font-weight: 800;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.profileLink:hover {
+  text-decoration: underline;
+}
 
             .list {
               display: grid;

@@ -41,7 +41,7 @@ export default function RequestsPage() {
     try {
       setLoading(true);
       setError("");
-      const data = await apiFetch("/requests"); // protetto -> usa Bearer
+      const data = await apiFetch("/requests/feed"); // protetto -> usa Bearer
       const list = data?.requests || data?.items || [];
       setRequests(list);
     } catch (err) {
