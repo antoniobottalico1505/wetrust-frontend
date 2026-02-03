@@ -262,106 +262,131 @@ if (data?.amount_cents) setMsg(`Da pagare: ${centsToEUR(data.amount_cents)} (fee
               {city ? <p className="city">{city}</p> : null}
               <p className="desc">{reqData.description}</p>
 
-              <div className="row">
-                <span className="badge">{reqData.status}</span>
+      <div className="row">
+  <span className="badge">{reqData.status}</span>
 
-                {!ready ? null : !user ? (
-                  <Link href="/login" legacyBehavior>
-                    <a className="btn2">Accedi via SMS</a>
-                  </Link>
-                ) : !match && String(user.id) !== String(reqData.userId) ? (
-                  <button type="button" className="btn2" onClick={accept}>
-                    Accetta
-                  </button>
-                ) : null}
+  {!ready ? null : !user ? (
+    <Link href="/login" legacyBehavior>
+      <a className="btn2">Accedi via SMS</a>
+    </Link>
+  ) : !match && String(user.id) !== String(reqData.userId) ? (
+    <button type="button" className="btn2" onClick={accept}>
+      Accetta
+    </button>
+  ) : null}
 
-                {match ? (
-                  <Link href={`/chat/${match.id}`} legacyBehavior>
-                    <a className="ghost">Apri chat</a>
-                  </Link>
-                ) : null}
+<div className="actions">
+  {match ? (
+    <Link href={`/chat/${match.id}`} legacyBehavior>
+      <a className="ghost">Apri chat</a>
+    </Link>
+  ) : null}
 
-                <Link href="/requests" legacyBehavior>
-                  <a className="ghost">Torna alle richieste</a>
-                </Link>
-              </div>
-            </article>
-          </div>
+  <Link href="/requests" legacyBehavior>
+    <a className="ghost">Torna alle richieste</a>
+  </Link>
+</div>
+</div>
 
           {match && (
-            <div className="grid">
-              <div className="card">
-                <h3>Match</h3>
-                <p className="line">
-                  <strong>Status:</strong> {match.status || "—"}
-                </p>
-                <p className="line">
-                  <strong>Prezzo:</strong>{" "}
-                  {match.price_cents ? centsToEUR(match.price_cents) : "non impostato"}
-                </p>
-                <p className="line">
-                  <strong>Fee WeTrust:</strong> {match.fee_cents ? centsToEUR(match.fee_cents) : "—"}
-                </p>
-                <p className="hint">Il denaro viene bloccato e rilasciato solo con conferma del richiedente.</p>
+  <div className="grid">
+    <div className="card">
+      <h3>Match</h3>
 
-                {user && String(user.id) === String(match.helperId) && (
-                  <div className="row">
-                    <input
-                      value={priceEUR}
-                      onChange={(e) => setPriceEUR(e.target.value)}
-                      placeholder="Prezzo in € (es. 25)"
-                    />
-                    <button type="button" className="btn" onClick={setPrice}>
-                      Imposta prezzo
-                    </button>
-                  </div>
-                )}
+      <p className="line">
+        <strong>Status:</strong> {match.status || "—"}
+      </p>
 
-                {user && String(user.id) === String(match.userId) && (
-                  <>
-                    <div className="row">
-                      <button type="button" className="btn" onClick={() => startPay(false)}>
-                        Paga
-                      </button>
-                      <button type="button" className="btn ghost" onClick={() => startPay(true)}>
-                        Paga usando voucher
-                      </button>
-                    </div>
+      <p className="line">
+        <strong>Prezzo:</strong>{" "}
+        {match.price_cents ? centsToEUR(match.price_cents) : "non impostato"}
+      </p>
 
-                    <div className="row">
-                      <button type="button" className="btn danger" onClick={release}>
-                        Conferma & rilascia pagamento
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
+      <p className="line">
+        <strong>Fee WeTrust:</strong>{" "}
+        {match.fee_cents ? centsToEUR(match.fee_cents) : "—"}
+      </p>
 
-              {clientSecret && stripePromise ? (
-                <Elements stripe={stripePromise} options={{ clientSecret }}>
-                  <PayBox
-                    onPaid={() => {
-                      setClientSecret(null);
-                      load();
-                    }}
-                  />
-                </Elements>
-              ) : (
-                <div className="card">
-                  <h3>Pagamento</h3>
-                  <p className="hint">
-                    Clicca “Paga (carta)” per vedere i metodi di pagamento.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+      <p className="hint">
+        Il denaro viene bloccato e rilasciato solo con conferma del richiedente.
+      </p>
+
+      {user && String(user.id) === String(match.helperId) && (
+        <div className="row">
+          <input
+            value={priceEUR}
+            onChange={(e) => setPriceEUR(e.target.value)}
+            placeholder="Prezzo in € (es. 25)"
+          />
+          <button type="button" className="btn" onClick={setPrice}>
+            Imposta prezzo
+          </button>
+        </div>
+      )}
+
+      {user && String(user.id) === String(match.userId) && (
+        <div>
+          <div className="row">
+            <button type="button" className="btn" onClick={() => startPay(false)}>
+              Paga
+            </button>
+            <button type="button" className="btn ghost" onClick={() => startPay(true)}>
+              Paga usando voucher
+            </button>
+          </div>
+
+          <div className="row">
+            <button type="button" className="btn danger" onClick={release}>
+              Conferma & rilascia pagamento
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+
+    <div className="card">
+      <h3>Pagamento</h3>
+
+      {clientSecret && stripePromise ? (
+        <Elements stripe={stripePromise} options={{ clientSecret }}>
+          <PayBox
+            onPaid={() => {
+              setClientSecret(null);
+              load();
+            }}
+          />
+        </Elements>
+      ) : (
+        <p className="hint">
+  I metodi di pagamento saranno disponibili e il trasferimento avverrà quando il destinatario avrà creato un account Stripe Express dalla sezione{" "}
+  <Link href="/profile" legacyBehavior>
+    <a className="profileLink">Profilo</a>
+  </Link>
+  .
+</p>
+      )}
+    </div>
+  </div>
+)}
+</article>
+</div>
 
           <style jsx>{`
             .msgTop {
               font-size: 13px;
               margin: 6px 0 10px;
             }
+.profileLink {
+  color: #00b4ff;
+  text-decoration: none;
+  font-weight: 800;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.profileLink:hover {
+  text-decoration: underline;
+}
 
             .list {
               display: grid;

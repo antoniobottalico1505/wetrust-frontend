@@ -84,6 +84,10 @@ if (auth !== false) {
   if (token) headers.Authorization = `Bearer ${token}`;
 }
 
+  // Aggiunge token se disponibile (opts.auth === false => NON aggiunge Authorization)
+  const token = auth === false ? null : readToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   // Body
   let body = fetchOpts.body;
   const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
