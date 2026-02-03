@@ -1,64 +1,7 @@
-// web/pages/profile.js
 import { useContext, useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import { AuthContext } from "./_app";
-import Link from "next/link";
-
-function getToken() {
-  if (typeof window === "undefined") return null;
-  try {
-    return (
-      localStorage.getItem("wetrust_token") ||
-      localStorage.getItem("token") ||
-      sessionStorage.getItem("token")
-    );
-  } catch {
-    return null;
-  }
-}
-
-async function apiAuthFetch(path, options = {}) {
-  const token = getToken();
-  const headers = { ...(options.headers || {}) };
-  if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
-  return apiFetch(path, { ...options, headers });
-}
-
-function isNotFound(err) {
-  const m = String(err?.message || "").toLowerCase();
-  return m.includes("not found") || m.includes("404");
-}
-
-function pickUrl(data) {
-  if (!data) return "";
-  return (
-    data.url ||
-    data.onboarding_url ||
-    data.onboardingUrl ||
-    data.account_link_url ||
-    data.accountLinkUrl ||
-    data.link ||
-    data.redirect_url ||
-    data.redirectUrl ||
-    (typeof data === "string" ? data : "") ||
-    ""
-  );
-}
-
-async function tryCalls(calls) {
-  let last = null;
-  for (const fn of calls) {
-    try {
-      return await fn();
-    } catch (e) {
-      last = e;
-      if (isNotFound(e)) continue;
-      throw e;
-    }
-  }
-  throw last || new Error("Not found");
-}
 
 export default function ProfilePage() {
   const auth = useContext(AuthContext) || {};
@@ -66,73 +9,71 @@ export default function ProfilePage() {
   const ready = auth.ready ?? auth[2] ?? false;
   const logout = auth.logout ?? (() => {});
   const refresh = auth.refresh ?? (async () => {});
+const userId = user?.id || null;
 
   const [msg, setMsg] = useState("");
   const [wallet, setWallet] = useState(0);
   const [redeemCode, setRedeemCode] = useState("");
   const [loading, setLoading] = useState(false);
+const [meUser, setMeUser] = useState(null);
 
-  async function loadWallet() {
+async function loadMe() {
+  if (!ready || !user) return;
+  try {
+    const data = await apiFetch("/me");
+    setMeUser(data?.user || null);
+  } catch {
+    setMeUser(null);
+  }
+}
+
+useEffect(() => {
+  if (!ready || !user) return;
+  (async () => {
     try {
-      const data = await tryCalls([
-        () => apiAuthFetch("/wallet"),
-        () => apiAuthFetch("/me/wallet"),
-        () => apiAuthFetch("/users/me/wallet"),
-      ]);
-
-      const cents =
-        Number(data?.wallet_cents ?? data?.wallet ?? data?.walletCents ?? 0) || 0;
-
-      setWallet(cents);
+      const data = await apiFetch("/wallet");
+      setWallet(Number(data?.wallet_cents || 0));
     } catch {
       setWallet(0);
     }
-  }
 
-  useEffect(() => {
-    if (!ready || !user) return;
-    loadWallet();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, user?.id]);
+    await loadMe();
+  })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [ready, user]);
 
-  async function doRefresh() {
-    setMsg("");
-    try {
-      setLoading(true);
-      await refresh();
-      await loadWallet();
-      setMsg("Aggiornato ✅");
-    } catch (err) {
-      setMsg(err?.message || "Errore aggiornamento.");
-    } finally {
-      setLoading(false);
-    }
+async function refreshAll() {
+  setMsg("");
+  try {
+    setLoading(true);
+    await refresh();
+    await loadMe();
+
+    const data = await apiFetch("/wallet");
+    setWallet(Number(data?.wallet_cents || 0));
+  } catch {
+    // ok: non blocchiamo la UI
+  } finally {
+    setLoading(false);
   }
+}
 
   async function redeem(e) {
     e.preventDefault();
     setMsg("");
-
-    const code = redeemCode.trim();
-    if (!code) {
-      setMsg("Inserisci un codice voucher.");
-      return;
-    }
-
     try {
       setLoading(true);
-
-      await tryCalls([
-        () => apiAuthFetch("/vouchers/redeem", { method: "POST", body: { code } }),
-        () => apiAuthFetch("/wallet/redeem", { method: "POST", body: { code } }),
-        () => apiAuthFetch("/voucher/redeem", { method: "POST", body: { code } }),
-        () => apiAuthFetch("/redeem", { method: "POST", body: { code } }),
-      ]);
-
+      await apiFetch("/vouchers/redeem", {
+        method: "POST",
+        body: { code: redeemCode },
+      });
       setRedeemCode("");
-      await loadWallet();
-      await refresh();
+
+      const data = await apiFetch("/wallet");
+      setWallet(Number(data?.wallet_cents || 0));
+
       setMsg("Voucher riscattato ✅");
+      await refresh();
     } catch (err) {
       setMsg(err?.message || "Errore nel riscatto voucher.");
     } finally {
@@ -142,56 +83,22 @@ export default function ProfilePage() {
 
   async function startOnboarding() {
     setMsg("");
-    if (typeof window === "undefined") return;
-
     try {
       setLoading(true);
-
       const baseUrl = window.location.origin;
-
-      // endpoint principale (quello giusto)
-      const data = await apiAuthFetch("/stripe/connect/onboard", {
+      const data = await apiFetch("/stripe/connect/onboard", {
         method: "POST",
         body: { baseUrl },
       });
-
-      const url = pickUrl(data);
-
-      if (url) {
-        window.location.href = url;
-        return;
-      }
-
-      await refresh();
-    setMsg("Onboarding avviato ✅");
-  } catch (e) {
-    const m = String(e?.message || "");
-    if (
-      m.toLowerCase().includes("complete your platform profile") ||
-      m.toLowerCase().includes("platform profile") ||
-      m.includes("dashboard.stripe.com/connect/accounts/overview")
-    ) {
-      window.open(
-        "https://dashboard.stripe.com/connect/accounts/overview",
-        "_blank",
-        "noopener,noreferrer"
-      );
-      setMsg("Apri la dashboard Stripe e completa il questionario, poi riprova ✅");
-      return;
+      window.location.href = data.url;
+    } catch (err) {
+      setMsg(err?.message || "Errore nell'apertura onboarding Stripe.");
+    } finally {
+      setLoading(false);
     }
-    setMsg(e?.message || "Errore nell'apertura onboarding Stripe.");
-  } finally {
-    setLoading(false);
   }
-}
 
-  if (!ready) {
-    return (
-      <Layout title="WeTrust">
-        <p>Caricamento…</p>
-      </Layout>
-    );
-  }
+  if (!ready) return <Layout title="WeTrust"><p>Caricamento…</p></Layout>;
 
   if (!user) {
     return (
@@ -199,27 +106,28 @@ export default function ProfilePage() {
         <div style={{ padding: "10px 0" }}>
           <h1>Profilo</h1>
           <p>Per creare richieste, accettarle e chattare devi accedere.</p>
-          <a href="/login" className="btn">
-            Vai al login
-          </a>
+          <a href="/login" className="btn">Vai al login</a>
         </div>
-
         <style jsx>{`
-          .btn {
-            display: inline-block;
-            border-radius: 999px;
-            padding: 8px 18px;
-            font-weight: 700;
-            background: linear-gradient(135deg, #00b4ff, #00e0a0);
-            color: #020617;
-            text-decoration: none;
+          .btn{
+            display:inline-block;
+            border-radius:999px;
+            padding:8px 18px;
+            font-weight:700;
+            background:linear-gradient(135deg,#00b4ff,#00e0a0);
+            color:#020617;
+            text-decoration:none;
           }
         `}</style>
       </Layout>
     );
   }
 
-  const stripeActive = !!(user.stripe_account_id || user.stripeAccountId);
+const u = meUser || user;
+
+const trustTotal = Number(u?.trust_points_total ?? u?.trust_points ?? 0);
+const workPts = Number(u?.work_points ?? 0);
+const voucherPts = Number(u?.voucher_points ?? Math.max(trustTotal - workPts, 0));
 
   return (
     <Layout title="WeTrust — Profilo">
@@ -227,32 +135,24 @@ export default function ProfilePage() {
         <h1>Profilo</h1>
 
         <div className="card">
-          <div>
-            <strong>Trust-ID</strong>: {user.phone || user.email || user.name || "—"}
-          </div>
-          <div>
-            <strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€
-          </div>
-          <div>
-            <strong>Stripe Connect</strong>: {stripeActive ? "attivo" : "non attivo"}
-          </div>
+        <div><strong>Trust-ID</strong>: {u.phone || u.email || u.name || "—"}</div>
+
+<div><strong>Punti lavoro svolto</strong>: {workPts}</div>
+<div><strong>Punti fiducia (voucher)</strong>: {voucherPts}</div>
+<div><strong>Punti fiducia totali</strong>: {trustTotal}</div>
+
+<div><strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€</div>
+<div><strong>Stripe Connect</strong>: {u.stripe_account_id ? "attivo" : "non attivo"}</div>
 
           <div className="row">
-            <button onClick={doRefresh} disabled={loading}>
-              Aggiorna
-            </button>
-            <button className="ghost" onClick={logout} disabled={loading}>
-              Esci
-            </button>
+            <button onClick={refreshAll} disabled={loading}>Aggiorna</button>
+            <button className="ghost" onClick={logout} disabled={loading}>Esci</button>
           </div>
 
           <hr className="hr" />
 
           <h2>Per ricevere pagamenti</h2>
-
-          <p className="sub">
-            Completa l’onboarding Stripe Express (richiesto per farti pagare).
-          </p>
+          <p className="sub">Completa l’onboarding Stripe Express (richiesto per farti pagare).</p>
           <button onClick={startOnboarding} disabled={loading}>
             {loading ? "Apro…" : "Attiva pagamenti (Stripe Connect)"}
           </button>
@@ -274,23 +174,10 @@ export default function ProfilePage() {
       </div>
 
       <style jsx>{`
-        .wrap {
-          max-width: 760px;
-          margin: 0 auto;
-          padding: 16px 0;
-        }
-        h1 {
-          font-size: 28px;
-          margin: 6px 0 12px;
-        }
-        h2 {
-          margin: 8px 0 6px;
-          font-size: 18px;
-        }
-        .sub {
-          margin: 0 0 10px;
-          opacity: 0.9;
-        }
+        .wrap { max-width: 760px; margin: 0 auto; padding: 16px 0; }
+        h1 { font-size: 28px; margin: 6px 0 12px; }
+        h2 { margin: 8px 0 6px; font-size: 18px; }
+        .sub { margin: 0 0 10px; opacity: 0.9; }
         .card {
           border-radius: 18px;
           background: rgba(15, 23, 42, 0.95);
@@ -300,12 +187,7 @@ export default function ProfilePage() {
           flex-direction: column;
           gap: 10px;
         }
-        .row {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-          align-items: center;
-        }
+        .row { display:flex; gap: 10px; flex-wrap: wrap; align-items:center; }
         input {
           flex: 1;
           min-width: 180px;
@@ -329,34 +211,8 @@ export default function ProfilePage() {
         .ghost {
           background: transparent;
           color: #ffffff;
-          border: 1px solid rgba(148, 163, 184, 0.6);
+          border: 1px solid rgba(148,163,184,0.6);
         }
-        .hr {
-          width: 100%;
-          border: none;
-          border-top: 1px solid rgba(148, 163, 184, 0.25);
-          margin: 4px 0;
-        }
-        .msg {
-          font-size: 13px;
-        }
-
-.btnLink {
-  border-radius: 999px;
-  border: none;
-  padding: 8px 18px;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  background: linear-gradient(135deg, #00b4ff, #00e0a0);
-  color: #020617;
-  text-decoration: none;
-  display: inline-block;
-}
-.btnLink.disabled {
-  opacity: 0.6;
-  pointer-events: none;
-}
         .hr { width:100%; border:none; border-top:1px solid rgba(148,163,184,0.25); margin: 4px 0; }
         .msg { font-size: 13px; }
       `}</style>
