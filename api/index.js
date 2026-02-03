@@ -114,6 +114,28 @@ function ensureMatchAccess(request, reply, matchId) {
   return m;
 }
 
+function computeHelperPoints(helperId) {
+  const hid = String(helperId || "");
+  let work = 0;
+  let voucher = 0;
+
+  for (const m of matches) {
+    if (String(m.helperId) !== hid) continue;
+    if (String(m.status || "").toUpperCase() !== "RELEASED") continue;
+
+    const priceCents = Number(m.price_cents || 0);
+    work += Math.floor(priceCents / 1000); // +1 ogni 10€
+
+    const mode = String(m.helper_payout_mode || "cash").toLowerCase();
+    const voucherCents = Number(m.voucher_cents || 0);
+    if (mode === "trust" && voucherCents > 0) {
+      voucher += Math.round(voucherCents / 100); // 1000->10, 2500->25
+    }
+  }
+
+  return { work_points: work, voucher_points: voucher, trust_points_total: work + voucher };
+}
+
 function safeNameForStream(user) {
   if (user.email) return user.email.split("@")[0];
   if (user.phone) return user.phone.replace(/\D/g, "").slice(-6);
@@ -199,8 +221,9 @@ app.post("/matches/:id/messages", { preHandler: [requireAuth] }, async (request,
   app.get("/health", async () => ({ ok: true, status: "ok" }));
 
   app.get("/me", { preHandler: [requireAuth] }, async (request) => {
-    return { ok: true, user: publicUser(request.user) };
-  });
+  const pts = computeHelperPoints(request.user.id);
+  return { ok: true, user: { ...publicUser(request.user), ...pts } };
+});
 
 // ---------- WALLET ----------
 app.get("/wallet", { preHandler: [requireAuth] }, async (request) => {
@@ -602,7 +625,12 @@ if (reqItem.status !== "OPEN" && !isOwner && !isHelper) {
     }
   }
 
-  return reply.send({ ok: true, request: reqItem, match });
+let helper = null;
+if (match?.helperId) {
+  helper = { id: String(match.helperId), ...computeHelperPoints(match.helperId) };
+}
+
+return reply.send({ ok: true, request: reqItem, match, helper });
 });
 
 
@@ -813,6 +841,74 @@ const pi = await stripe.paymentIntents.create({
 });
 
 // ---------- MATCH: RELEASE (CAPTURE) ----------
+// Helper sceglie come essere pagato:
+// - cash  => payout pieno
+// - trust => rinuncia al valore del voucher e prende punti fiducia (voucher_points)
+app.post("/matches/:id/payout-mode", { preHandler: [requireAuth] }, async (request, reply) => {
+  const matchId = String(request.params.id);
+  const mode = String(request.body?.mode || "").trim().toLowerCase();
+
+  if (mode !== "cash" && mode !== "trust") {
+    return reply.code(400).send({ ok: false, error: "mode non valido (usa 'cash' o 'trust')" });
+  }
+
+  // trova match (in-memory)
+  const match = matches.find((m) => String(m.id) === matchId);
+  if (!match) return reply.code(404).send({ ok: false, error: "Match non trovato" });
+
+  // solo helper può impostarlo
+  if (String(match.helperId) !== String(request.user.id)) {
+    return reply.code(403).send({ ok: false, error: "Solo l'helper può scegliere cash/trust" });
+  }
+
+  // deve essere pagato / fondi bloccati
+  const paid =
+    match.paid_with_wallet === true ||
+    String(match.payment_status || "") === "succeeded" ||
+    String(match.status || "").toUpperCase() === "HELD";
+
+  if (!paid) {
+    return reply.code(400).send({ ok: false, error: "Puoi scegliere cash/trust solo dopo il pagamento" });
+  }
+
+  // trust ha senso solo se c'è voucher
+  const voucherCents = Number(match.voucher_cents || 0);
+  if (mode === "trust" && voucherCents <= 0) {
+    return reply.code(400).send({ ok: false, error: "Modalità trust disponibile solo se è stato usato un voucher" });
+  }
+
+  // non dopo rilascio
+  const st = String(match.status || "").toUpperCase();
+  if (st === "RELEASING" || st === "RELEASED") {
+    return reply.code(409).send({ ok: false, error: "Non puoi cambiare modalità dopo il rilascio" });
+  }
+
+  match.helper_payout_mode = mode;
+
+  return reply.send({
+    ok: true,
+    match: {
+      id: match.id,
+      requestId: match.requestId,
+      userId: match.userId,
+      helperId: match.helperId,
+      status: match.status,
+      price_cents: match.price_cents,
+      fee_cents: match.fee_cents,
+      amount_cents: match.amount_cents,
+      voucher_code: match.voucher_code,
+      voucher_cents: match.voucher_cents,
+      helper_payout_mode: match.helper_payout_mode,
+      payment_intent_id: match.payment_intent_id,
+      payment_status: match.payment_status,
+      paid_with_wallet: match.paid_with_wallet,
+      paidAt: match.paidAt,
+      transfer_id: match.transfer_id,
+      releasedAt: match.releasedAt,
+    },
+  });
+});
+
 app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, reply) => {
   const { id } = request.params;
   const m = ensureMatchAccess(request, reply, String(id));
