@@ -342,10 +342,6 @@ setHelperStats(data.helper || null);
                 <Link href="/login" className="btn">
                   Accedi via SMS
                 </Link>
-              ) : !match && String(user.id) !== String(reqData.userId) ? (
-                <button onClick={accept} className="btn">
-                  Accetta richiesta
-                </button>
               ) : null}
 
                         {match ? (
@@ -452,14 +448,6 @@ setHelperStats(data.helper || null);
         Wallet + voucher
       </button>
     </div>
-
-    <div className="row">
-      <button className="btn danger" onClick={release}>
-        Conferma & rilascia pagamento
-      </button>
-    </div>
-  </>
-)}
 
     <div className="row">
       <button className="btn danger" onClick={release}>
