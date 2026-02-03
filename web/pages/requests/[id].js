@@ -17,6 +17,7 @@ function getToken() {
   return (
     localStorage.getItem("wetrust_token") ||
     localStorage.getItem("token") ||
+    sessionStorage.getItem("wetrust_token") ||
     sessionStorage.getItem("token")
   );
 }
@@ -86,7 +87,7 @@ function PayBox({ match, onPaid }) {
   return (
     <div className="card">
       <h3>Paga (fondi bloccati)</h3>
-      <p className="sub">Stile Vinted: il denaro resta bloccato finché confermi la consegna del servizio.</p>
+      <p className="sub">Il denaro resta bloccato fino a conferma di avvenuto servizio.</p>
 
       <form onSubmit={pay}>
         <PaymentElement />

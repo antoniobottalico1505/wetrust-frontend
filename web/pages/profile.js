@@ -46,13 +46,16 @@ async function refreshAll() {
   setMsg("");
   try {
     setLoading(true);
+
     await refresh();
     await loadMe();
 
     const data = await apiFetch("/wallet");
     setWallet(Number(data?.wallet_cents || 0));
-  } catch {
-    // ok: non blocchiamo la UI
+
+    setMsg("Aggiornato ✅");
+  } catch (err) {
+    setMsg(err?.message || "Errore aggiornamento profilo.");
   } finally {
     setLoading(false);
   }
