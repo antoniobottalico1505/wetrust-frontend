@@ -140,9 +140,9 @@ const voucherPts = Number(u?.voucher_points ?? Math.max(trustTotal - workPts, 0)
         <div className="card">
         <div><strong>Trust-ID</strong>: {u.phone || u.email || u.name || "—"}</div>
 
-<div><strong>Punti lavoro svolto</strong>: {workPts}</div>
+<div><strong>Punti lavoro</strong>: {workPts}</div>
 <div><strong>Punti fiducia (voucher)</strong>: {voucherPts}</div>
-<div><strong>Punti fiducia totali</strong>: {trustTotal}</div>
+<div><strong>Punteggio totale</strong>: {trustTotal}</div>
 
 <div><strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€</div>
 <div><strong>Stripe Connect</strong>: {u.stripe_account_id ? "attivo" : "non attivo"}</div>
