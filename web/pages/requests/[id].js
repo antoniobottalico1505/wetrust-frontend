@@ -129,7 +129,10 @@ function PayBox({ match, onPaid }) {
 }
 
 export default function RequestDetail({ id }) {
-  const { user, ready } = useContext(AuthContext);
+  const auth = useContext(AuthContext) || {};
+const user = auth.user ?? auth[0] ?? null;
+const ready = auth.ready ?? auth[2] ?? false;
+const refresh = auth.refresh ?? (async () => {});
 
   const [reqData, setReqData] = useState(null);
   const [match, setMatch] = useState(null);
@@ -158,22 +161,23 @@ const [helperStats, setHelperStats] = useState(null);
     return true;
   }
 
-  async function load() {
-    try {
-      setMsg("");
-      setLoading(true);
+async function load({ keepMsg = false, silent = false } = {}) {
+  try {
+    if (!keepMsg) setMsg("");
+    setLoading(true);
 
-      const data = await apiAuthFetch(`/requests/${id}`);
-setReqData(data.request);
-setMatch(data.match || null);
-setHelperStats(data.helper || null);
-    } catch (err) {
-      const m = err?.message || "Errore caricamento";
-      setMsg(m);
-    } finally {
-      setLoading(false);
+    const data = await apiAuthFetch(`/requests/${id}`);
+    setReqData(data.request);
+    setMatch(data.match || null);
+    setHelperStats(data.helper || null); // se hai helperStats, altrimenti elimina questa riga
+  } catch (err) {
+    if (!silent) {
+      setMsg(err?.message || "Errore caricamento");
     }
+  } finally {
+    setLoading(false);
   }
+}
 
   useEffect(() => {
     if (id) load();
@@ -188,6 +192,7 @@ setHelperStats(data.helper || null);
       const data = await apiAuthFetch(`/requests/${id}/accept`, { method: "POST" });
       setMatch(data.match);
       setMsg("Richiesta accettata ✅ Ora potete chattare.");
+await load({ keepMsg: true, silent: true });
     } catch (err) {
       setMsg(err?.message || "Errore accettazione richiesta");
     }
@@ -212,6 +217,7 @@ setHelperStats(data.helper || null);
 
       setMatch(data.match);
       setMsg("Prezzo impostato ✅");
+await load({ keepMsg: true, silent: true });
     } catch (err) {
       setMsg(err?.message || "Errore impostazione prezzo");
     }
@@ -242,7 +248,7 @@ setHelperStats(data.helper || null);
             `Totale: ${centsToEUR(data.amount_cents)} — Da pagare: ${centsToEUR(data.payable_cents ?? data.amount_cents)}`
         );
         // ricarica dati match
-        load();
+       await load({ keepMsg: true, silent: true });
         return;
       }
 
@@ -271,6 +277,7 @@ setHelperStats(data.helper || null);
 
       setMatch(data.match);
       setMsg(`Modalità helper impostata: ${mode.toUpperCase()} ✅`);
+await load({ keepMsg: true, silent: true });
     } catch (err) {
       setMsg(err?.message || "Errore scelta modalità cash/trust");
     }
@@ -287,6 +294,8 @@ setHelperStats(data.helper || null);
 
       const pts = Number(data.trust_points_awarded || 0);
       setMsg(pts > 0 ? `Pagamento rilasciato ✅ (+${pts} punti fiducia all'helper)` : "Pagamento rilasciato ✅");
+await load({ keepMsg: true, silent: true });
+try { await refresh(); } catch {}
     } catch (err) {
       setMsg(err?.message || "Errore rilascio pagamento");
     }
@@ -464,7 +473,7 @@ setHelperStats(data.helper || null);
 
                 {clientSecret && stripePromise ? (
                   <Elements stripe={stripePromise} options={{ clientSecret }}>
-                    <PayBox match={match} onPaid={() => load()} />
+                    <PayBox match={match} onPaid={() => load({ keepMsg: true, silent: true })} />
                   </Elements>
                 ) : (
                   <p className="hint">
