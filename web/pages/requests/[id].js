@@ -347,13 +347,6 @@ try { await refresh(); } catch {}
   </article>
 </div>
 
-            <div className="actions">
-              {!ready ? null : !user ? (
-                <Link href="/login" className="btn">
-                  Accedi via SMS
-                </Link>
-              ) : null}
-
           {match && (
             <div className="grid">
               <div className="card">
