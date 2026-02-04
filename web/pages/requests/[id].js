@@ -354,13 +354,6 @@ try { await refresh(); } catch {}
                 </Link>
               ) : null}
 
-                        {match ? (
-                <Link href={`/chat/${match.id}`} className="btn ghost">
-                  Apri chat
-                </Link>
-              ) : null}
-            </div>
-
           {match && (
             <div className="grid">
               <div className="card">
@@ -473,7 +466,7 @@ try { await refresh(); } catch {}
                 <h3>Pagamento</h3>
 
                 {clientSecret && stripePromise ? (
-                  <Elements stripe={stripePromise} options={{ clientSecret }}>
+                 <Elements stripe={stripePromise} options={{ clientSecret, locale: "it" }}>
                     <PayBox match={match} onPaid={() => load({ keepMsg: true, silent: true })} />
                   </Elements>
                 ) : (

@@ -254,7 +254,7 @@ export default function ChatsPage() {
 
                 {it.city ? <p className="city">{it.city}</p> : null}
                 <p className="desc">
-                  {clip(it.desc, 160) || "Apri la chat per vedere i dettagli."}
+                  {clip(it.desc, 160) || "Apri la chat per iniziare una conversazione."}
                 </p>
 
                 <div className="row">
