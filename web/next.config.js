@@ -1,5 +1,11 @@
-﻿/** @type {import("next").NextConfig} */
+/** @type {import("next").NextConfig} */
 const nextConfig = {
+  i18n: {
+    locales: ["it", "en"],
+    defaultLocale: "it",
+    localeDetection: false,
+  },
+
   async rewrites() {
     return [
       {
@@ -11,3 +17,6 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
+
+
+

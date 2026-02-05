@@ -38,21 +38,6 @@ export default function Layout({ title = "WeTrust", children }) {
           <span>© {new Date().getFullYear()} WeTrust.</span>
           <span className="footer-note">Fiducia umana → Aiuto reale → Pagamento semplice.</span>
         </footer>
-
-        {/* Google Translate loader + init (NON dentro style) */}
-        <Script
-          id="gt-script"
-          strategy="afterInteractive"
-          src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"
-        />
-        <Script id="gt-init" strategy="afterInteractive">
-          {`function googleTranslateElementInit() {
-              new google.translate.TranslateElement(
-                { pageLanguage: 'it', includedLanguages: 'it,en', autoDisplay: false },
-                'google_translate_element'
-              );
-            }`}
-        </Script>
       </div>
 
       <style jsx global>{`
@@ -117,7 +102,7 @@ html { -webkit-text-size-adjust: 100%; }
 }
 
 .langBtn.flag.it { box-shadow: 0 0 0 2px rgba(0, 224, 160, 0.18); }
-.langBtn.flag.uk { box-shadow: 0 0 0 2px rgba(0, 180, 255, 0.18); }
+.langBtn.flag.en { box-shadow: 0 0 0 2px rgba(0, 180, 255, 0.18); }
 
         /* NIENTE PIU' VIOLA: anche visited */
         a,
