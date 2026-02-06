@@ -42,12 +42,14 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       stripe_account_id TEXT,
       wallet_cents INTEGER NOT NULL DEFAULT 0,
-      trust_points INTEGER NOT NULL DEFAULT 0
+      trust_points NUMERIC(12,2) NOT NULL DEFAULT 0
     );
   `);
 
   // MIGRATION: colonne nuove (safe su DB già esistenti)
-  await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trust_points INTEGER NOT NULL DEFAULT 0;`);
+  await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trust_points NUMERIC(12,2) NOT NULL DEFAULT 0;`);
+// MIGRATION: consenti decimali sui trust points
+await db(`ALTER TABLE users ALTER COLUMN trust_points TYPE NUMERIC(12,2) USING trust_points::numeric;`);
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS work_points INTEGER NOT NULL DEFAULT 0;`);
 
   // Email unique (case-insensitive) – semplice: indice su lower(email)
@@ -516,16 +518,9 @@ app.post("/matches/:id/messages", { preHandler: [requireAuth] }, async (request,
   // UNICA route /health (niente duplicati!)
   app.get("/health", async () => ({ ok: true, status: "ok" }));
 
- app.get("/me", { preHandler: [requireAuth] }, async (request) => {
-  let pts = { work_points: 0, voucher_points: 0, trust_points_total: 0 };
-
-  try {
-    pts = await computeHelperPoints(request.user.id);
-  } catch (e) {
-    request.log?.error?.(e, "computeHelperPoints failed");
-  }
-
-  return { ok: true, user: { ...publicUser(request.user), ...pts } };
+app.get("/me", { preHandler: [requireAuth] }, async (request) => {
+  // Nel profilo servono solo trust_points e wallet_cents (no più work/total)
+  return { ok: true, user: publicUser(request.user) };
 });
 
 // ---------- WALLET ----------
@@ -1101,66 +1096,6 @@ app.get("/requests", async (request, reply) => {
   return reply.send({ ok: true, items: list, requests: list });
 });
 
-// Crea request (auth)
-app.post("/requests", { preHandler: [requireAuth] }, async (request, reply) => {
-  const { title, description, city } = request.body || {};
-  if (!title) return reply.code(400).send({ ok: false, error: "Titolo obbligatorio" });
-  if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
-
-  const id = randomUUID();
-  const cleanCity = typeof city === "string" ? city.trim() : null;
-
-  const { rows } = await db(
-    `INSERT INTO requests (id, user_id, title, description, city, status)
-     VALUES ($1,$2,$3,$4,$5,'OPEN')
-     RETURNING id,user_id,title,description,city,created_at,status`,
-    [id, request.user.id, String(title), String(description || ""), cleanCity]
-  );
-
-  const r = rows[0];
-  return reply.send({
-    ok: true,
-    item: {
-      id: r.id,
-      userId: r.user_id,
-      title: r.title,
-      description: r.description,
-      city: r.city,
-      createdAt: r.created_at,
-      status: r.status,
-    },
-  });
-});
-
-// Feed auth: OPEN + richieste dove sei owner/helper
-app.get("/requests/feed", { preHandler: [requireAuth] }, async (request, reply) => {
-  if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
-
-  const uid = String(request.user.id);
-
-  const { rows } = await db(
-    `SELECT r.id,r.user_id,r.title,r.description,r.city,r.created_at,r.status
-     FROM requests r
-     LEFT JOIN matches m ON m.request_id = r.id
-     WHERE r.status='OPEN' OR m.user_id=$1 OR m.helper_id=$1
-     ORDER BY r.created_at DESC`,
-    [uid]
-  );
-
-  const items = rows.map((r) => ({
-    id: r.id,
-    userId: r.user_id,
-    title: r.title,
-    description: r.description,
-    city: r.city,
-    createdAt: r.created_at,
-    status: r.status,
-  }));
-
-  return reply.send({ ok: true, items });
-});
-
-// Dettaglio request (auth + protezione)
 app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) => {
   if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
 
@@ -1180,6 +1115,7 @@ app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) =
 
   const mq = await db("SELECT * FROM matches WHERE request_id=$1 LIMIT 1", [id]);
   const mrow = mq.rows[0] || null;
+
   const isOwner = String(r.user_id) === String(request.user.id);
   const isHelper = !!(mrow && String(mrow.helper_id) === String(request.user.id));
 
@@ -1190,6 +1126,16 @@ app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) =
     });
   }
 
+  // ✅ FIX: reqObj esiste davvero
+  const reqObj = {
+    id: r.id,
+    userId: r.user_id,
+    title: r.title,
+    description: r.description,
+    city: r.city,
+    createdAt: r.created_at,
+    status: r.status,
+  };
 
   const matchObj = mrow
     ? {
@@ -1202,6 +1148,9 @@ app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) =
         price_cents: mrow.price_cents,
         fee_cents: mrow.fee_cents,
         amount_cents: mrow.amount_cents,
+        voucher_code: mrow.voucher_code,
+        voucher_cents: mrow.voucher_cents,
+        helper_payout_mode: mrow.helper_payout_mode,
         payment_intent_id: mrow.payment_intent_id,
         payment_status: mrow.payment_status,
         paid_with_wallet: mrow.paid_with_wallet,
@@ -1211,7 +1160,12 @@ app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) =
       }
     : null;
 
-   // opzionale: sync status Stripe
+  // ✅ Richiesta #1: il richiedente NON deve poter vedere Cash/Trust dell’helper
+  if (matchObj && !isHelper) {
+    delete matchObj.helper_payout_mode;
+  }
+
+  // opzionale: sync status Stripe
   if (matchObj && stripe && matchObj.payment_intent_id) {
     try {
       const pi = await stripe.paymentIntents.retrieve(matchObj.payment_intent_id);
@@ -1222,109 +1176,11 @@ app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) =
 
   let helper = null;
   if (matchObj?.helperId) {
-    const pts = await computeHelperPoints(matchObj.helperId);
-    helper = { id: matchObj.helperId, ...pts };
+    const hq = await db("SELECT trust_points FROM users WHERE id=$1", [matchObj.helperId]);
+    helper = { id: matchObj.helperId, trust_points: Number(hq.rows[0]?.trust_points || 0) };
   }
 
   return reply.send({ ok: true, request: reqObj, match: matchObj, helper });
-});
-
-// Accept (auth, 1 match per request, no duplicati)
-app.post("/requests/:id/accept", { preHandler: [requireAuth] }, async (request, reply) => {
-  if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
-
-  const rid = String(request.params.id);
-
-  try {
-    await db("BEGIN");
-
-    const rq = await db("SELECT * FROM requests WHERE id=$1 FOR UPDATE", [rid]);
-    const r = rq.rows[0];
-    if (!r) {
-      await db("ROLLBACK");
-      return reply.code(404).send({
-        ok: false,
-        error: "Questa richiesta non è disponibile: potrebbe essere stata rimossa o non è più accessibile.",
-      });
-    }
-
-    if (String(r.user_id) === String(request.user.id)) {
-      await db("ROLLBACK");
-      return reply.code(400).send({ ok: false, error: "Non puoi accettare la tua richiesta" });
-    }
-
-    // se già esiste match
-    const ex = await db("SELECT * FROM matches WHERE request_id=$1 LIMIT 1", [rid]);
-    if (ex.rows[0]) {
-      const existing = ex.rows[0];
-      await db("ROLLBACK");
-
-      if (String(existing.helper_id) !== String(request.user.id)) {
-        return reply.code(409).send({ ok: false, error: "Questa richiesta è già stata accettata da un altro utente." });
-      }
-
-      return reply.send({
-        ok: true,
-        match: {
-          id: existing.id,
-          requestId: existing.request_id,
-          userId: existing.user_id,
-          helperId: existing.helper_id,
-          createdAt: existing.created_at,
-          status: existing.status,
-          price_cents: existing.price_cents,
-          fee_cents: existing.fee_cents,
-          amount_cents: existing.amount_cents,
-          payment_intent_id: existing.payment_intent_id,
-          payment_status: existing.payment_status,
-          paid_with_wallet: existing.paid_with_wallet,
-          paidAt: existing.paid_at,
-          transfer_id: existing.transfer_id,
-          releasedAt: existing.released_at,
-        },
-      });
-    }
-
-    // crea match
-    const mid = randomUUID();
-    const ins = await db(
-      `INSERT INTO matches (id, request_id, user_id, helper_id, status)
-       VALUES ($1,$2,$3,$4,'ACCEPTED')
-       RETURNING *`,
-      [mid, rid, r.user_id, request.user.id]
-    );
-
-    // aggiorna request
-    await db("UPDATE requests SET status='ACCEPTED' WHERE id=$1", [rid]);
-
-    await db("COMMIT");
-
-    const m = ins.rows[0];
-    return reply.send({
-      ok: true,
-      match: {
-        id: m.id,
-        requestId: m.request_id,
-        userId: m.user_id,
-        helperId: m.helper_id,
-        createdAt: m.created_at,
-        status: m.status,
-        price_cents: m.price_cents,
-        fee_cents: m.fee_cents,
-        amount_cents: m.amount_cents,
-        payment_intent_id: m.payment_intent_id,
-        payment_status: m.payment_status,
-        paid_with_wallet: m.paid_with_wallet,
-        paidAt: m.paid_at,
-        transfer_id: m.transfer_id,
-        releasedAt: m.released_at,
-      },
-    });
-  } catch (e) {
-    try { await db("ROLLBACK"); } catch {}
-    request.log.error(e);
-    return reply.code(500).send({ ok: false, error: "Errore accept" });
-  }
 });
 
   // ---------------- MATCHES ----------------
@@ -1479,6 +1335,12 @@ app.post("/matches/:id/pay", { preHandler: [requireAuth] }, async (request, repl
   }
 
   const voucherCodeRaw = String(request.body?.voucher_code || request.body?.voucher || "").trim();
+// Voucher non più applicabili al checkout: vanno riscattati nel wallet (profilo)
+if (voucherCodeRaw) {
+  return reply
+    .code(400)
+    .send({ ok: false, error: "I voucher vanno riscattati nel wallet. Usa 'Paga con wallet'." });
+}
 
   try {
     await db("BEGIN");
@@ -1634,7 +1496,7 @@ app.post("/matches/:id/pay", { preHandler: [requireAuth] }, async (request, repl
     // ---------------- WALLET ----------------
     if (useWallet) {
       // 7) Rileggo wallet
-      const wr = await db("SELECT wallet_cents FROM users WHERE id=$1", [request.user.id]);
+     const wr = await db("SELECT wallet_cents FROM users WHERE id=$1 FOR UPDATE", [request.user.id]);
       const walletCents = Number(wr.rows[0]?.wallet_cents || 0);
 
       if (walletCents < payableCents) {
@@ -1644,9 +1506,14 @@ app.post("/matches/:id/pay", { preHandler: [requireAuth] }, async (request, repl
 
       // 8) Scala wallet (paga SOLO payableCents)
       const upWallet = await db(
-        "UPDATE users SET wallet_cents = wallet_cents - $1 WHERE id=$2 RETURNING wallet_cents",
-        [payableCents, request.user.id]
-      );
+  "UPDATE users SET wallet_cents = wallet_cents - $1 WHERE id=$2 AND wallet_cents >= $1 RETURNING wallet_cents",
+  [payableCents, request.user.id]
+);
+
+if (upWallet.rowCount === 0) {
+  await db("ROLLBACK");
+  return reply.code(400).send({ ok: false, error: "Wallet insufficiente" });
+}
 
       // 9) Aggiorna match su DB
       const upMatch = await db(
@@ -1822,11 +1689,6 @@ app.post("/matches/:id/payout-mode", { preHandler: [requireAuth] }, async (reque
     return reply.code(400).send({ ok: false, error: "Puoi scegliere cash/trust solo dopo il pagamento" });
   }
 
-  const voucherCents = Number(row.voucher_cents || 0);
-  if (mode === "trust" && voucherCents <= 0) {
-    return reply.code(400).send({ ok: false, error: "Modalità trust disponibile solo se è stato usato un voucher" });
-  }
-
   const st = String(row.status || "").toUpperCase();
   if (st === "RELEASING" || st === "RELEASED") {
     return reply.code(409).send({ ok: false, error: "Non puoi cambiare modalità dopo il rilascio" });
@@ -1869,7 +1731,6 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
   try {
     await db("BEGIN");
 
-    // 1) lock match
     const mq = await db("SELECT * FROM matches WHERE id=$1 FOR UPDATE", [id]);
     const row = mq.rows[0];
 
@@ -1878,13 +1739,12 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       return reply.code(404).send({ ok: false, error: "Match non trovato" });
     }
 
-    // 2) solo requester rilascia
+    // solo requester rilascia
     if (String(row.user_id) !== String(request.user.id)) {
       await db("ROLLBACK");
       return reply.code(403).send({ ok: false, error: "Solo il richiedente può rilasciare" });
     }
 
-    // 3) blocca se già rilasciato / in rilascio
     if (["RELEASING", "RELEASED"].includes(String(row.status))) {
       await db("ROLLBACK");
       return reply.code(409).send({ ok: false, error: "Rilascio già avviato o completato." });
@@ -1896,66 +1756,41 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       return reply.code(400).send({ ok: false, error: "Prezzo non valido" });
     }
 
-    const voucherCents = Number(row.voucher_cents || 0);
     const payoutMode = String(row.helper_payout_mode || "cash").trim().toLowerCase();
 
-    // cash => payout pieno; trust => payout = prezzo - voucher
-    let payoutCents = priceCents;
-    if (payoutMode === "trust" && voucherCents > 0) {
-      payoutCents = Math.max(0, priceCents - voucherCents);
-    }
+    // ✅ evita “release” prima del pagamento
+    const paid =
+      row.paid_with_wallet === true ||
+      String(row.status || "").toUpperCase() === "HELD" ||
+      String(row.payment_status || "").toLowerCase() === "succeeded";
 
-    // Punti fiducia al rilascio:
-    // +1 ogni 10€ di prezzo lavoro
-    // +10 o +25 (solo se trust e voucher usato)
-    const trustFromPrice = Math.floor(priceCents / 1000);
-    const trustFromVoucher = payoutMode === "trust" ? Math.round(voucherCents / 100) : 0;
-    const trustPointsAwarded = trustFromPrice + trustFromVoucher;
-
-    if (!stripe) {
+    if (!paid) {
       await db("ROLLBACK");
-      return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
+      return reply.code(400).send({ ok: false, error: "Devi prima completare il pagamento prima di rilasciare." });
     }
 
-    // 4) prendi stripe_account_id helper da DB
-    const hr = await db("SELECT stripe_account_id FROM users WHERE id=$1", [String(row.helper_id)]);
-    const helperStripeAccountId = hr.rows[0]?.stripe_account_id || null;
+    // Nuova logica:
+    // - cash  => trasferisco il prezzo del lavoro
+    // - trust => nessun trasferimento: converto il prezzo in Trust points (decimali)
+    const payoutCents = payoutMode === "cash" ? priceCents : 0;
 
-    if (!helperStripeAccountId) {
-      await db("ROLLBACK");
-      return reply.code(400).send({ ok: false, error: "Helper non ha Stripe Connect attivo" });
-    }
+    // 1€ = 1 Trust point (2 decimali)
+    const trustPointsAwarded =
+      payoutMode === "trust" ? Math.round((priceCents / 100) * 100) / 100 : 0;
 
-    // 5) segna RELEASING (facoltativo, ma utile)
-    await db("UPDATE matches SET status='RELEASING' WHERE id=$1", [id]);
-
-    // ---- WALLET release ----
-    if (row.paid_with_wallet === true) {
-      const tr = await stripe.transfers.create({
-        amount: payoutCents,
-        currency: "eur",
-        destination: helperStripeAccountId,
-        transfer_group: `match_${String(row.id)}`,
-        metadata: {
-          matchId: String(row.id),
-          requestId: String(row.request_id),
-          payout_mode: String(payoutMode || "cash"),
-          voucher_cents: String(voucherCents || 0),
-        },
-      });
-
+    // ✅ TRUST: non richiede Stripe Connect, non crea transfer
+    if (payoutMode === "trust") {
       const up = await db(
         `UPDATE matches
-         SET transfer_id=$1,
-             payment_status='released',
+         SET transfer_id=NULL,
+             payment_status='released_trust',
              status='RELEASED',
              released_at=now()
-         WHERE id=$2
+         WHERE id=$1
          RETURNING *`,
-        [tr.id, id]
+        [id]
       );
 
-      // accredita punti fiducia all'helper (una sola volta: la release è unica)
       if (trustPointsAwarded > 0) {
         await db(
           "UPDATE users SET trust_points = trust_points + $1 WHERE id=$2",
@@ -1968,7 +1803,7 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       const m = up.rows[0];
       return reply.send({
         ok: true,
-        payout_cents: payoutCents,
+        payout_cents: 0,
         trust_points_awarded: trustPointsAwarded,
         match: {
           id: m.id,
@@ -1993,14 +1828,80 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       });
     }
 
-    // ---- CARD release ----
+    // CASH: serve Stripe
+    if (!stripe) {
+      await db("ROLLBACK");
+      return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
+    }
+
+    const hr = await db("SELECT stripe_account_id FROM users WHERE id=$1", [String(row.helper_id)]);
+    const helperStripeAccountId = hr.rows[0]?.stripe_account_id || null;
+
+    if (!helperStripeAccountId) {
+      await db("ROLLBACK");
+      return reply.code(400).send({ ok: false, error: "Helper non ha Stripe Connect attivo" });
+    }
+
+    await db("UPDATE matches SET status='RELEASING' WHERE id=$1", [id]);
+
+    // WALLET cash => transfer da saldo piattaforma
+    if (row.paid_with_wallet === true) {
+      const tr = await stripe.transfers.create({
+        amount: payoutCents,
+        currency: "eur",
+        destination: helperStripeAccountId,
+        transfer_group: `match_${String(row.id)}`,
+        metadata: { matchId: String(row.id), requestId: String(row.request_id), payout_mode: payoutMode },
+      });
+
+      const up = await db(
+        `UPDATE matches
+         SET transfer_id=$1,
+             payment_status='released',
+             status='RELEASED',
+             released_at=now()
+         WHERE id=$2
+         RETURNING *`,
+        [tr.id, id]
+      );
+
+      await db("COMMIT");
+
+      const m = up.rows[0];
+      return reply.send({
+        ok: true,
+        payout_cents: payoutCents,
+        trust_points_awarded: 0,
+        match: {
+          id: m.id,
+          requestId: m.request_id,
+          userId: m.user_id,
+          helperId: m.helper_id,
+          createdAt: m.created_at,
+          status: m.status,
+          price_cents: m.price_cents,
+          fee_cents: m.fee_cents,
+          amount_cents: m.amount_cents,
+          voucher_code: m.voucher_code,
+          voucher_cents: m.voucher_cents,
+          helper_payout_mode: m.helper_payout_mode,
+          payment_intent_id: m.payment_intent_id,
+          payment_status: m.payment_status,
+          paid_with_wallet: m.paid_with_wallet,
+          paidAt: m.paid_at,
+          transfer_id: m.transfer_id,
+          releasedAt: m.released_at,
+        },
+      });
+    }
+
+    // CARD cash => transfer legato alla charge
     if (!row.payment_intent_id) {
       await db("ROLLBACK");
       return reply.code(400).send({ ok: false, error: "payment_intent_id mancante" });
     }
 
     const pi = await stripe.paymentIntents.retrieve(row.payment_intent_id);
-
     if (pi.status !== "succeeded") {
       await db("ROLLBACK");
       return reply.code(400).send({ ok: false, error: `PaymentIntent non succeeded (status=${pi.status})` });
@@ -2011,16 +1912,9 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       currency: "eur",
       destination: helperStripeAccountId,
       transfer_group: `match_${String(row.id)}`,
-      metadata: {
-        matchId: String(row.id),
-        requestId: String(row.request_id),
-        payout_mode: String(payoutMode || "cash"),
-        voucher_cents: String(voucherCents || 0),
-      },
+      metadata: { matchId: String(row.id), requestId: String(row.request_id), payout_mode: payoutMode },
     };
 
-    // Se payoutCents <= amount pagato, posso legare il trasferimento alla charge.
-    // Se payoutCents > amount pagato (tipico: voucher + cash), Stripe richiede saldo piattaforma -> niente source_transaction.
     if (pi.latest_charge && payoutCents <= Number(pi.amount || 0)) {
       transferParams.source_transaction = pi.latest_charge;
     }
@@ -2038,21 +1932,13 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       [tr.id, id]
     );
 
-    // accredita punti fiducia all'helper
-    if (trustPointsAwarded > 0) {
-      await db(
-        "UPDATE users SET trust_points = trust_points + $1 WHERE id=$2",
-        [trustPointsAwarded, String(row.helper_id)]
-      );
-    }
-
     await db("COMMIT");
 
     const m = up.rows[0];
     return reply.send({
       ok: true,
       payout_cents: payoutCents,
-      trust_points_awarded: trustPointsAwarded,
+      trust_points_awarded: 0,
       match: {
         id: m.id,
         requestId: m.request_id,
@@ -2075,15 +1961,15 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       },
     });
   } catch (e) {
-    try {
-      await db("ROLLBACK");
-    } catch {}
+    try { await db("ROLLBACK"); } catch {}
     request.log.error(e, "release failed");
-    return reply.code(500).send({ ok: false, error: "Errore rilascio" });
+
+    // errore utile (Stripe) invece di “Errore rilascio” secco
+    const msg = e?.raw?.message || e?.message || "Errore rilascio";
+    return reply.code(400).send({ ok: false, error: msg });
   }
 });
 
-// -------- STRIPE WEBHOOK (RAW) --------
 // -------- STRIPE WEBHOOK (RAW) --------
 // parser application/json -> Buffer SOLO per questa route
 app.register(async function (instance) {
