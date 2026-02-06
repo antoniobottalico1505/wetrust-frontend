@@ -169,8 +169,16 @@ async function load({ keepMsg = false, silent = false } = {}) {
 
     const data = await apiAuthFetch(`/requests/${id}`);
     setReqData(data.request);
-    setMatch(data.match || null);
-    setHelperStats(data.helper || null); // se hai helperStats, altrimenti elimina questa riga
+
+const m = data.match || null;
+setMatch(m);
+
+// Dopo un pagamento completato/bloccato non ha senso mantenere aperto il form Stripe
+if (m && (m.paid_with_wallet || String(m.status || "").toUpperCase() === "HELD" || String(m.payment_status || "").toLowerCase() === "succeeded")) {
+  setClientSecret(null);
+}
+
+setHelperStats(data.helper || null);
   } catch (err) {
     if (!silent) {
       setMsg(err?.message || "Errore caricamento");
@@ -232,13 +240,10 @@ await load({ keepMsg: true, silent: true });
     try {
       const code = (withVoucher ? voucherCode : "").trim();
 
-      const data = await apiAuthFetch(`/matches/${match.id}/pay`, {
-        method: "POST",
-        body: {
-          use_wallet: !!useWallet,
-          voucher_code: code || undefined,
-        },
-      });
+   const data = await apiAuthFetch(`/matches/${match.id}/pay`, {
+  method: "POST",
+  body: { use_wallet: !!useWallet },
+});
 
       // Se paga con wallet, il backend può rispondere senza clientSecret
       if (data.wallet_used) {
@@ -293,8 +298,7 @@ await load({ keepMsg: true, silent: true });
             const data = await apiAuthFetch(`/matches/${match.id}/release`, { method: "POST" });
       setMatch(data.match);
 
-      const pts = Number(data.trust_points_awarded || 0);
-      setMsg(pts > 0 ? `Pagamento rilasciato ✅ (+${pts} punti fiducia all'helper)` : "Pagamento rilasciato ✅");
+setMsg("Pagamento rilasciato ✅");
 await load({ keepMsg: true, silent: true });
 try { await refresh(); } catch {}
     } catch (err) {
@@ -305,6 +309,10 @@ try { await refresh(); } catch {}
   if (!id) return null;
 
   const city = reqData ? pickCity(reqData) : "";
+const isRequester = !!(user && match && String(user.id) === String(match.userId));
+const matchStatus = String(match?.status || "").toUpperCase();
+const isPaid = !!(match?.paid_with_wallet || matchStatus === "HELD" || String(match?.payment_status || "").toLowerCase() === "succeeded");
+const isReleased = matchStatus === "RELEASED" || matchStatus === "RELEASING";
 
   return (
     <Layout title="WeTrust — Dettaglio richiesta">
@@ -365,15 +373,15 @@ try { await refresh(); } catch {}
   <strong>Voucher:</strong>{" "}
   {match.voucher_cents ? `-${centsToEUR(match.voucher_cents)}` : "—"}
 </p>
-<p className="line">
-  <strong>Payout helper:</strong>{" "}
-  {(match.helper_payout_mode || match.helperPayoutMode || "cash").toUpperCase()}
-</p>
+{user && match && String(user.id) === String(match.helperId) ? (
+  <p className="line">
+    <strong>Payout:</strong>{" "}
+    {(match.helper_payout_mode || match.helperPayoutMode || "cash").toUpperCase()}
+  </p>
+) : null}
 {helperStats && user && reqData && String(user.id) === String(reqData.userId) ? (
   <p className="line">
-    <strong>Punti helper:</strong>{" "}
-    lavoro {Number(helperStats.work_points || 0)} • voucher {Number(helperStats.voucher_points || 0)} • tot{" "}
-    {Number(helperStats.trust_points_total || 0)}
+    <strong>Punti Trust helper:</strong> {Number(helperStats.trust_points || 0).toFixed(2)}
   </p>
 ) : null}
 
@@ -401,55 +409,32 @@ try { await refresh(); } catch {}
         CASH (payout pieno)
       </button>
       <button className="btn ghost" onClick={() => setPayoutMode("trust")}>
-        TRUST (rinuncio al voucher)
+        TRUST (converti in Trust points)
       </button>
     </div>
   )}
 
-{user && match && String(user.id) === String(match.userId) && (
+{isRequester && (
   <>
-    {/* Voucher */}
-    <div className="row">
-      <input
-        value={voucherCode}
-        onChange={(e) => setVoucherCode(e.target.value)}
-        placeholder="Codice voucher"
-      />
-    </div>
+    {!isPaid && !isReleased && (
+      <div className="row">
+        <button className="btn" onClick={() => startPay({ useWallet: false })}>
+          Paga
+        </button>
 
-    <div className="row">
-      <button className="btn" onClick={() => startPay({ useWallet: false, withVoucher: false })}>
-        Paga
-      </button>
+        <button className="btn ghost" onClick={() => startPay({ useWallet: true })}>
+          Paga con wallet
+        </button>
+      </div>
+    )}
 
-      <button
-        className="btn ghost"
-        onClick={() => startPay({ useWallet: false, withVoucher: true })}
-        disabled={!voucherCode.trim()}
-        title={!voucherCode.trim() ? "Inserisci un codice voucher" : ""}
-      >
-        Paga con voucher
-      </button>
-
-      <button className="btn ghost" onClick={() => startPay({ useWallet: true, withVoucher: false })}>
-        Paga con wallet
-      </button>
-
-      <button
-        className="btn ghost"
-        onClick={() => startPay({ useWallet: true, withVoucher: true })}
-        disabled={!voucherCode.trim()}
-        title={!voucherCode.trim() ? "Inserisci un codice voucher" : ""}
-      >
-        Wallet + voucher
-      </button>
-    </div>
-
-    <div className="row">
-      <button className="btn danger" onClick={release}>
-        Conferma & rilascia pagamento
-      </button>
-    </div>
+    {isPaid && !isReleased && (
+      <div className="row">
+        <button className="btn danger" onClick={release}>
+          Rilascia pagamento
+        </button>
+      </div>
+    )}
   </>
 )}
 

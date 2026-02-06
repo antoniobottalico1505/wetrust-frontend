@@ -128,9 +128,7 @@ async function refreshAll() {
 
 const u = meUser || user;
 
-const trustTotal = Number(u?.trust_points_total ?? u?.trust_points ?? 0);
-const workPts = Number(u?.work_points ?? 0);
-const voucherPts = Number(u?.voucher_points ?? Math.max(trustTotal - workPts, 0));
+const trustPoints = Number(u?.trust_points ?? 0);
 
   return (
     <Layout title="WeTrust — Profilo">
@@ -140,9 +138,7 @@ const voucherPts = Number(u?.voucher_points ?? Math.max(trustTotal - workPts, 0)
         <div className="card">
         <div><strong>Trust-ID</strong>: {u.phone || u.email || u.name || "—"}</div>
 
-<div><strong>Punti lavoro</strong>: {workPts}</div>
-<div><strong>Punti fiducia (voucher)</strong>: {voucherPts}</div>
-<div><strong>Punteggio totale</strong>: {trustTotal}</div>
+<div><strong>Trust points</strong>: {trustPoints.toFixed(2)}</div>
 
 <div><strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€</div>
 <div><strong>Stripe Connect</strong>: {u.stripe_account_id ? "attivo" : "non attivo"}</div>
