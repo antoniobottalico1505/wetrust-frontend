@@ -80,13 +80,13 @@ export default function LanguageToggle() {
   };
 
   return (
-    <button
-      type="button"
-      className={`langBtn flag ${lang === "it" ? "it" : "en"}`}
-      onClick={toggle}
-      aria-label="Switch language"
-    >
-      {lang === "it" ? "IT" : "EN"}
-    </button>
-  );
+  <button
+    type="button"
+    className={`langBtn flag ${lang === "it" ? "it" : "en"}`}
+    onClick={toggle}
+    aria-label="Switch language"
+  >
+    {lang === "it" ? "EN" : "IT"}   {/* <-- era IT/EN, ora è il “target” */}
+  </button>
+);
 }

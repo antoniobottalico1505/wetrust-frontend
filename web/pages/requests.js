@@ -126,31 +126,34 @@ export default function RequestsPage() {
 
           <div className="list">
             {requests.map((r) => {
-              const city = pickCity(r);
+  const status = String(r.status || "OPEN").toUpperCase();
+  const canAccept = status === "OPEN";
 
-              return (
-                <article key={r.id} className="card2">
-                  <h2>{r.title || "Richiesta"}</h2>
+  return (
+    <article key={r.id} className="card2">
+      <h2>{r.title || "Richiesta"}</h2>
 
-                  {/* ✅ città se presente (normalizzata) */}
-                  {city ? <p className="city">{city}</p> : null}
+      <p className="desc">{r.description}</p>
 
-                  <p className="desc">{r.description}</p>
+      <div className="row">
+        <button className="btn2" onClick={() => accept(r.id)} disabled={!canAccept}>
+          {canAccept ? "Accetta" : status}
+        </button>
 
-                  <div className="row">
-                    <button className="btn2" onClick={() => accept(r.id)}>
-                      Accetta
-                    </button>
-                    <Link className="ghost" href={`/requests/${r.id}`}>
-                      Dettagli
-                    </Link>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+        <Link className="ghost" href={`/requests/${r.id}`}>
+          Dettagli
+        </Link>
+      </div>
+    </article>
+  );
+})}
+         </div>
 
           <style jsx>{`
+.btn2:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
             .err {
               opacity: 0.95;
             }
