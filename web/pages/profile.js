@@ -141,7 +141,10 @@ const trustPoints = Number(u?.trust_points ?? 0);
 <div><strong>Trust points</strong>: {trustPoints.toFixed(2)}</div>
 
 <div><strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€</div>
-<div><strong>Stripe Connect</strong>: {u.stripe_account_id ? "attivo" : "non attivo"}</div>
+<div>
+  <strong>Stripe Connect</strong>:{" "}
+  {u.stripe_account_id ? "attivo" : "non attivo"}
+</div>
 
           <div className="row">
             <button onClick={refreshAll} disabled={loading}>Aggiorna</button>

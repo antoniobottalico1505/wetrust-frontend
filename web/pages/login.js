@@ -25,6 +25,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+const [showPassword, setShowPassword] = useState(false);
 
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -166,17 +167,7 @@ export default function LoginPage() {
           <label>Email</label>
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required autoComplete="email" />
 
-<<<<<<< HEAD
-          <label>Password</label>
-          <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            type="password"
-            required
-            autoComplete="current-password"
-          />
-=======
-         <label>Password</label>
+   <label>Password</label>
 <div className="pw">
   <input
     value={password}
@@ -191,11 +182,9 @@ export default function LoginPage() {
     onClick={() => setShowPassword((v) => !v)}
     aria-label={showPassword ? "Nascondi password" : "Mostra password"}
   >
-   {showPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
-
+    {showPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
   </button>
 </div>
->>>>>>> a6b5e7e (fix(web): add lucide-react and fix login eye icons)
 
           <button disabled={loading}>{loading ? "Accesso…" : "Accedi"}</button>
 
@@ -256,6 +245,25 @@ export default function LoginPage() {
       {msg && <p className="msg">{msg}</p>}
 
       <style jsx>{`
+.pw { position: relative; display: flex; align-items: center; }
+.pw input { width: 100%; padding-right: 44px; }
+.pwBtn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent !important;
+  border: none !important;
+  margin: 0 !important;
+  padding: 6px !important;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pwBtn :global(svg) { display: block; }
         .tabs { display:flex; gap:10px; margin: 12px 0; flex-wrap:wrap; }
         .tab {
           border-radius:999px;

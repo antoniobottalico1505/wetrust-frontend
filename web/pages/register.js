@@ -3,10 +3,12 @@ import Link from "next/link";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import { setSession } from "../lib/session";
+import { Eye as EyeIcon, EyeOff as EyeOffIcon } from "lucide-react";
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -37,7 +39,22 @@ export default function RegisterPage() {
         <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
 
         <label>Password (min 8)</label>
-        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" required />
+<div className="pw">
+  <input
+    value={password}
+    onChange={(e) => setPassword(e.target.value)}
+    type={showPassword ? "text" : "password"}
+    required
+  />
+  <button
+    type="button"
+    className="pwBtn"
+    onClick={() => setShowPassword((v) => !v)}
+    aria-label={showPassword ? "Nascondi password" : "Mostra password"}
+  >
+    {showPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+  </button>
+</div>
 
         <button disabled={loading}>{loading ? "Creo…" : "Crea account"}</button>
 
@@ -49,6 +66,25 @@ export default function RegisterPage() {
       {msg && <p className="msg">{msg}</p>}
 
       <style jsx>{`
+.pw { position: relative; display: flex; align-items: center; }
+.pw input { width: 100%; padding-right: 44px; }
+.pwBtn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent !important;
+  border: none !important;
+  margin: 0 !important;
+  padding: 6px !important;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pwBtn :global(svg) { display: block; }
         .card {
           max-width: 520px;
           border-radius: 18px;
