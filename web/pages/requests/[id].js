@@ -313,6 +313,10 @@ const isRequester = !!(user && match && String(user.id) === String(match.userId)
 const matchStatus = String(match?.status || "").toUpperCase();
 const isPaid = !!(match?.paid_with_wallet || matchStatus === "HELD" || String(match?.payment_status || "").toLowerCase() === "succeeded");
 const isReleased = matchStatus === "RELEASED" || matchStatus === "RELEASING";
+const helperMode = String(match?.helper_payout_mode || "").toLowerCase();
+const helperModeSet = helperMode && helperMode !== "unset";
+const requesterWalletOk = match?.requester_wallet_ok; // true/false/null (solo helper)
+const priceSet = Number(match?.price_cents || 0) > 0;
 
   return (
     <Layout title="WeTrust — Dettaglio richiesta">
@@ -399,43 +403,65 @@ const isReleased = matchStatus === "RELEASED" || matchStatus === "RELEASING";
   </div>
 )}
 
-{/* Helper: sceglie cash/trust (dopo pagamento) */}
-{user &&
-  match &&
-  String(user.id) === String(match.helperId) &&
-  (match.paid_with_wallet || match.payment_status === "succeeded" || match.status === "HELD") && (
+{isHelper && priceSet && !isPaid && (
+  <div className="card">
+    <h3>Modalità pagamento (helper)</h3>
+    <p className="sub">
+      Scegli come verrà pagato il lavoro. Il richiedente vedrà il tasto pagamento solo dopo questa scelta.
+    </p>
+
     <div className="row">
-      <button className="btn" onClick={() => setPayoutMode("cash")}>
-        CASH (payout pieno)
+      <button
+        className={helperMode === "cash" ? "active" : ""}
+        onClick={() => setPayoutMode("cash")}
+      >
+        CASH (carta → Stripe)
       </button>
-      <button className="btn ghost" onClick={() => setPayoutMode("trust")}>
-        TRUST (converti in Trust points)
+
+      <button
+        className={helperMode === "wallet" ? "active" : ""}
+        onClick={() => {
+          if (requesterWalletOk === false) {
+            setMsg("Il richiedente NON ha saldo wallet sufficiente. Chiedi una ricarica o usa CASH.");
+            return;
+          }
+          setPayoutMode("wallet");
+        }}
+      >
+        WALLET (saldo → accredito wallet)
       </button>
     </div>
-  )}
 
-{isRequester && (
-  <>
-    {!isPaid && !isReleased && (
-      <div className="row">
-        <button className="btn" onClick={() => startPay({ useWallet: false })}>
-          Paga
-        </button>
+    {requesterWalletOk === false && (
+      <p className="msg">Wallet non disponibile: saldo richiedente insufficiente.</p>
+    )}
+  </div>
+)}
 
-        <button className="btn ghost" onClick={() => startPay({ useWallet: true })}>
-          Paga con wallet
-        </button>
-      </div>
+{isRequester && match && !isPaid && (
+  <div className="card">
+    <h3>Pagamento</h3>
+
+    {!helperModeSet && (
+      <p className="msg">In attesa che l’helper scelga CASH o WALLET…</p>
     )}
 
-    {isPaid && !isReleased && (
-      <div className="row">
-        <button className="btn danger" onClick={release}>
-          Rilascia pagamento
-        </button>
-      </div>
+    {helperModeSet && (
+      <>
+        {helperMode === "cash" && (
+          <button onClick={() => startPay({ useWallet: false })}>
+            Paga con carta (fondi bloccati)
+          </button>
+        )}
+
+        {helperMode === "wallet" && (
+          <button onClick={() => startPay({ useWallet: true })}>
+            Paga con wallet (fondi bloccati)
+          </button>
+        )}
+      </>
     )}
-  </>
+  </div>
 )}
 
               </div>
