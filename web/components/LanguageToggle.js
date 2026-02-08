@@ -86,7 +86,7 @@ export default function LanguageToggle() {
       onClick={toggle}
       aria-label="Switch language"
     >
-      {lang === "it" ? "EN" : "IT"}
+      {lang === "it" ? "IT" : "EN"}
     </button>
   );
 }

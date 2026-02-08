@@ -19,7 +19,6 @@ export default function Layout({ title = "WeTrust", children }) {
             <Link href="/contact">Contatti</Link>
             <Link href="/chats">Chat</Link>
             <Link href="/faq">FAQ</Link>
-<Link href="/trust">Trust</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/login">Accedi</Link>
             <Link href="/register">Registrati</Link>

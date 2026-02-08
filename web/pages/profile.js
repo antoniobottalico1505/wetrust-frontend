@@ -13,7 +13,6 @@ const userId = user?.id || null;
 
   const [msg, setMsg] = useState("");
   const [wallet, setWallet] = useState(0);
-const [stripeStatus, setStripeStatus] = useState({ hasAccount: false, ready: false });
   const [redeemCode, setRedeemCode] = useState("");
   const [loading, setLoading] = useState(false);
 const [meUser, setMeUser] = useState(null);
@@ -38,13 +37,6 @@ useEffect(() => {
       setWallet(0);
     }
 
-try {
-  const st = await apiFetch("/stripe/connect/status");
-  setStripeStatus({ hasAccount: !!st?.hasAccount, ready: !!st?.ready });
-} catch {
-  setStripeStatus({ hasAccount: false, ready: false });
-}
-
     await loadMe();
   })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -60,12 +52,6 @@ async function refreshAll() {
 
     const data = await apiFetch("/wallet");
     setWallet(Number(data?.wallet_cents || 0));
-try {
-  const st = await apiFetch("/stripe/connect/status");
-  setStripeStatus({ hasAccount: !!st?.hasAccount, ready: !!st?.ready });
-} catch {
-  setStripeStatus({ hasAccount: false, ready: false });
-}
 
     setMsg("Aggiornato ✅");
   } catch (err) {
@@ -155,7 +141,7 @@ const trustPoints = Number(u?.trust_points ?? 0);
 <div><strong>Trust points</strong>: {trustPoints.toFixed(2)}</div>
 
 <div><strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€</div>
-<strong>Stripe Connect</strong>: {stripeStatus.ready ? "attivo ✅" : (stripeStatus.hasAccount ? "da completare" : "non attivo")}
+<div><strong>Stripe Connect</strong>: {u.stripe_account_id ? "attivo" : "non attivo"}</div>
 
           <div className="row">
             <button onClick={refreshAll} disabled={loading}>Aggiorna</button>
@@ -165,7 +151,7 @@ const trustPoints = Number(u?.trust_points ?? 0);
           <hr className="hr" />
 
           <h2>Per ricevere pagamenti</h2>
-          <p className="sub">Completa l’onboarding Stripe Express.</p>
+          <p className="sub">Completa l’onboarding Stripe Express (richiesto per farti pagare).</p>
           <button onClick={startOnboarding} disabled={loading}>
             {loading ? "Apro…" : "Attiva pagamenti (Stripe Connect)"}
           </button>
