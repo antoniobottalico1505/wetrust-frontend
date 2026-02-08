@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import { setSession } from "../lib/session";
+import { Eye as EyeIcon, EyeOff as EyeOffIcon } from "lucide-react";
 
 function persistToken(token) {
   if (typeof window === "undefined") return;
@@ -208,7 +209,7 @@ useEffect(() => {
     onClick={() => setShowPassword((v) => !v)}
     aria-label={showPassword ? "Nascondi password" : "Mostra password"}
   >
-   {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+   {showPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
 
   </button>
 </div>
