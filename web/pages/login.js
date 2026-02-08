@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Layout from "../components/Layout";
@@ -24,6 +24,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+const [showPassword, setShowPassword] = useState(false);
 
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -31,6 +32,33 @@ export default function LoginPage() {
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
+
+useEffect(() => {
+  if (!router.isReady) return;
+
+  const token = router.query?.verify;
+  if (!token) return;
+
+  (async () => {
+    setLoading(true);
+    setMsg("Verifico email…");
+
+    try {
+      await apiFetch("/auth/email/verify-link", {
+        method: "POST",
+        auth: false,
+        body: { token: String(token) },
+      });
+
+      setMsg("Email verificata ✅ Ora puoi accedere.");
+    } catch (err) {
+      setMsg(err?.message || "Verifica email fallita");
+    } finally {
+      setLoading(false);
+      router.replace("/login", undefined, { shallow: true });
+    }
+  })();
+}, [router.isReady]);
 
   async function loginEmail(e) {
     e.preventDefault();
@@ -165,14 +193,25 @@ export default function LoginPage() {
           <label>Email</label>
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required autoComplete="email" />
 
-          <label>Password</label>
-          <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            type="password"
-            required
-            autoComplete="current-password"
-          />
+         <label>Password</label>
+<div className="pw">
+  <input
+    value={password}
+    onChange={(e) => setPassword(e.target.value)}
+    type={showPassword ? "text" : "password"}
+    required
+    autoComplete="current-password"
+  />
+  <button
+    type="button"
+    className="pwBtn"
+    onClick={() => setShowPassword((v) => !v)}
+    aria-label={showPassword ? "Nascondi password" : "Mostra password"}
+  >
+   {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+
+  </button>
+</div>
 
           <button disabled={loading}>{loading ? "Accesso…" : "Accedi"}</button>
 
@@ -233,6 +272,40 @@ export default function LoginPage() {
       {msg && <p className="msg">{msg}</p>}
 
       <style jsx>{`
+.pw {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pw input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.pwBtn {
+  position: absolute;
+  right: 8px;
+  height: 34px;
+  width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+
+  /* ✅ stesso colore del testo input */
+  color: rgba(248, 250, 252, 0.92);
+
+  cursor: pointer;
+}
+
+.pwBtn:hover {
+  border-color: rgba(148, 163, 184, 0.45);
+  color: rgba(248, 250, 252, 1);
+}
         .tabs { display:flex; gap:10px; margin: 12px 0; flex-wrap:wrap; }
         .tab {
           border-radius:999px;

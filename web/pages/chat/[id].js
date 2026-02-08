@@ -39,6 +39,8 @@ function last6(value) {
 }
 
 function messageOwner(m, me) {
+  // Usiamo sempre l'ID utente (non telefono/email) per avere lo stesso "numero utente"
+  // sia in /chats che in /chats/[id].
   const senderId =
     m?.userId ||
     m?.senderId ||
@@ -49,17 +51,9 @@ function messageOwner(m, me) {
 
   const meId = me?.id != null ? String(me.id) : "";
   const sender = senderId != null ? String(senderId) : "";
+
   const isMe = !!meId && !!sender && sender === meId;
-
-  const phone =
-    m?.phone ||
-    m?.fromPhone ||
-    m?.senderPhone ||
-    m?.userPhone ||
-    m?.from_phone ||
-    m?.sender_phone;
-
-  const raw = isMe ? (me?.phone || me?.email || meId) : (phone || sender);
+  const raw = isMe ? meId : sender;
   const short = last6(raw);
 
   return { label: isMe ? "Tu" : "Utente", short };
