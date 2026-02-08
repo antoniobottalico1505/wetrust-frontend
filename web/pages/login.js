@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import { apiFetch } from "../lib/api";
 import { setSession } from "../lib/session";
+import { Eye as EyeIcon, EyeOff as EyeOffIcon } from "lucide-react";
 
 function persistToken(token) {
   if (typeof window === "undefined") return;
@@ -165,6 +166,7 @@ export default function LoginPage() {
           <label>Email</label>
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required autoComplete="email" />
 
+<<<<<<< HEAD
           <label>Password</label>
           <input
             value={password}
@@ -173,6 +175,27 @@ export default function LoginPage() {
             required
             autoComplete="current-password"
           />
+=======
+         <label>Password</label>
+<div className="pw">
+  <input
+    value={password}
+    onChange={(e) => setPassword(e.target.value)}
+    type={showPassword ? "text" : "password"}
+    required
+    autoComplete="current-password"
+  />
+  <button
+    type="button"
+    className="pwBtn"
+    onClick={() => setShowPassword((v) => !v)}
+    aria-label={showPassword ? "Nascondi password" : "Mostra password"}
+  >
+   {showPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+
+  </button>
+</div>
+>>>>>>> a6b5e7e (fix(web): add lucide-react and fix login eye icons)
 
           <button disabled={loading}>{loading ? "Accesso…" : "Accedi"}</button>
 
