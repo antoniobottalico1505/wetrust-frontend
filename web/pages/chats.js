@@ -63,21 +63,27 @@ function pickCity(o) {
   );
 }
 
-function pickOtherUserLabel(m) {
-  // prova a usare campi “user” già espansi dal backend, se presenti
-  const u = m?.otherUser || m?.other_user || m?.partner || m?.counterpart || null;
-  const name = u?.name || u?.full_name || u?.fullName || u?.email || "";
-  if (name) return name;
+function userCode(v) {
+  const s = String(v || "");
+  // se ci sono cifre, usa quelle (così ottieni sempre un numero tipo 123456)
+  const digits = s.replace(/\D/g, "");
+  const base = digits.length >= 6 ? digits : s.replace(/[^a-zA-Z0-9]/g, "");
+  return base.slice(-6);
+}
 
-  // fallback su id “grezzi”
+function userLabel(meId, m) {
   const otherId =
-    normId(m?.otherId) ||
-    normId(m?.other_id) ||
+    normId(m?.userId) === normId(meId) ? normId(m?.helperId) :
+    normId(m?.helperId) === normId(meId) ? normId(m?.userId) :
+    normId(m?.helper_id) === normId(meId) ? normId(m?.user_id) :
+    normId(m?.user_id) === normId(meId) ? normId(m?.helper_id) :
     normId(m?.helperId) ||
     normId(m?.helper_id) ||
     normId(m?.userId) ||
     normId(m?.user_id);
-  return otherId ? `Utente ${otherId.slice(-6)}` : "Utente";
+
+  const short = userCode(otherId);
+  return short ? `Utente ${short}` : "Utente";
 }
 
 async function tryFetchMatches() {

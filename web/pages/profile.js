@@ -128,7 +128,7 @@ async function refreshAll() {
 
 const u = meUser || user;
 
-const trustPoints = Number(u?.trust_points ?? 0);
+const trustPoints = Math.round(Number(u?.trust_points ?? 0));
 
   return (
     <Layout title="WeTrust — Profilo">
@@ -138,7 +138,7 @@ const trustPoints = Number(u?.trust_points ?? 0);
         <div className="card">
         <div><strong>Trust-ID</strong>: {u.phone || u.email || u.name || "—"}</div>
 
-<div><strong>Trust points</strong>: {trustPoints.toFixed(2)}</div>
+<div><strong>Trust points</strong>: {trustPoints}</div>
 
 <div><strong>Wallet voucher</strong>: {(wallet / 100).toFixed(2)}€</div>
 <div>

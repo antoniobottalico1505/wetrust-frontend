@@ -50,17 +50,8 @@ function messageOwner(m, me) {
   const meId = me?.id != null ? String(me.id) : "";
   const sender = senderId != null ? String(senderId) : "";
   const isMe = !!meId && !!sender && sender === meId;
-
-  const phone =
-    m?.phone ||
-    m?.fromPhone ||
-    m?.senderPhone ||
-    m?.userPhone ||
-    m?.from_phone ||
-    m?.sender_phone;
-
-  const raw = isMe ? (me?.phone || me?.email || meId) : (phone || sender);
-  const short = last6(raw);
+// ✅ numero utente coerente con /chats: sempre dagli ID
+const short = last6(isMe ? meId : sender);
 
   return { label: isMe ? "Tu" : "Utente", short };
 }

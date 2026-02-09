@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../lib/api";
 import { AuthContext } from "../_app";
@@ -147,11 +147,14 @@ const [helperStats, setHelperStats] = useState(null);
 
   const [clientSecret, setClientSecret] = useState(null);
 
-  const stripePromise = useMemo(() => {
-    const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-    if (!pk) return null;
-    return loadStripe(pk);
-  }, []);
+ const [stripePromise, setStripePromise] = useState(null);
+ useEffect(() => {
+ // ✅ Stripe solo in browser (evita crash SSR)
+ if (typeof window === "undefined") return;
+ const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+ if (!pk) return;
+ setStripePromise(loadStripe(pk));
+ }, []);
 
   function requireAuthOrMessage() {
     const token = getToken();
@@ -385,7 +388,7 @@ const priceSet = Number(match?.price_cents || 0) > 0;
 ) : null}
 {helperStats && user && reqData && String(user.id) === String(reqData.userId) ? (
   <p className="line">
-    <strong>Punti Trust helper:</strong> {Number(helperStats.trust_points || 0).toFixed(2)}
+    <strong>Punti Trust helper:</strong> {Math.round(Number(helperStats.trust_points || 0))}
   </p>
 ) : null}
 
