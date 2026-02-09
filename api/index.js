@@ -1,7 +1,7 @@
 ﻿"use strict";
 
 require("dotenv").config();
-const { randomUUID } = require("crypto");
+const { randomUUID, randomBytes, createHash } = require("crypto");
 
 const fastify = require("fastify");
 const cors = require("@fastify/cors");
@@ -43,6 +43,9 @@ async function initDb() {
       stripe_account_id TEXT,
       wallet_cents INTEGER NOT NULL DEFAULT 0,
       trust_points NUMERIC(12,2) NOT NULL DEFAULT 0
+email_verified BOOLEAN NOT NULL DEFAULT false,
+email_verify_token TEXT,
+email_verify_expires TIMESTAMPTZ,
     );
   `);
 
@@ -51,6 +54,10 @@ async function initDb() {
 // MIGRATION: consenti decimali sui trust points
 await db(`ALTER TABLE users ALTER COLUMN trust_points TYPE NUMERIC(12,2) USING trust_points::numeric;`);
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS work_points INTEGER NOT NULL DEFAULT 0;`);
+await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false;`);
+await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT;`);
+await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_expires TIMESTAMPTZ;`);
+await db(`CREATE INDEX IF NOT EXISTS users_email_verify_token_idx ON users (email_verify_token) WHERE email_verify_token IS NOT NULL;`);
 
   // Email unique (case-insensitive) – semplice: indice su lower(email)
   await db(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_uniq ON users (lower(email)) WHERE email IS NOT NULL;`);
@@ -98,7 +105,9 @@ await db(`ALTER TABLE users ALTER COLUMN trust_points TYPE NUMERIC(12,2) USING t
   // MIGRATION: colonne nuove (safe su DB già esistenti)
   await db(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS voucher_code TEXT;`);
   await db(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS voucher_cents INTEGER NOT NULL DEFAULT 0;`);
-  await db(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS helper_payout_mode TEXT NOT NULL DEFAULT 'cash';`);
+// prima: DEFAULT 'cash'
+await db(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS helper_payout_mode TEXT NOT NULL DEFAULT 'unset';`);
+await db(`ALTER TABLE matches ALTER COLUMN helper_payout_mode SET DEFAULT 'unset';`);
 
   await db(`CREATE UNIQUE INDEX IF NOT EXISTS matches_request_uniq ON matches (request_id);`);
   await db(`CREATE INDEX IF NOT EXISTS matches_user_idx ON matches (user_id);`);
@@ -448,6 +457,42 @@ await app.register(cors, {
         })
       : null;
 
+const WEB_BASE_URL = process.env.WEB_BASE_URL || "http://wetrust.club";
+
+function hashToken(t) {
+  return createHash("sha256").update(String(t)).digest("hex");
+}
+
+function newVerifyToken() {
+  return randomBytes(32).toString("hex");
+}
+
+async function sendVerifyEmail(toEmail, tokenPlain) {
+  if (!transporter) throw new Error("SMTP non configurato: impossibile inviare email di verifica.");
+
+  const link = `${WEB_BASE_URL}/login?verify=${encodeURIComponent(tokenPlain)}`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: toEmail,
+    subject: "WeTrust — Verify your email",
+    html: `
+      <div style="font-family:system-ui,Segoe UI,Roboto,Arial;">
+        <h2>Verifica la tua email</h2>
+        <p>Per completare la registrazione, clicca il pulsante qui sotto:</p>
+        <p>
+          <a href="${link}"
+             style="display:inline-block;padding:12px 18px;border-radius:10px;
+                    background:#00b4ff;color:#020617;text-decoration:none;font-weight:800;">
+            VERIFY NOW
+          </a>
+        </p>
+        <p style="opacity:.7;font-size:12px;">Se non hai richiesto tu, ignora questa email.</p>
+      </div>
+    `,
+  });
+}
+
 // Twilio (opzionale)
 const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) : null;
 
@@ -774,49 +819,52 @@ let accountId = user.stripe_account_id;
     }
   });
 
-  // ---------- AUTH: EMAIL REGISTER ----------
-  app.post("/auth/email/register", async (request, reply) => {
-  const { email, password } = request.body || {};
-  if (!email || !password) return reply.code(400).send({ ok: false, error: "Email e password obbligatori." });
+// ---------- AUTH: EMAIL REGISTER ----------
+app.post("/auth/email/register", async (request, reply) => {
+  try {
+    if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
 
-  const cleanEmail = String(email).trim().toLowerCase();
-  if (!cleanEmail.includes("@")) return reply.code(400).send({ ok: false, error: "Email non valida." });
-  if (String(password).length < 8) return reply.code(400).send({ ok: false, error: "Password min 8 caratteri." });
+    const email = String(request.body?.email || "").trim().toLowerCase();
+    const password = String(request.body?.password || "");
 
-  if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
-try {
-    const passwordHash = await bcrypt.hash(String(password), 10);
+    if (!email || !password) {
+      return reply.code(400).send({ ok: false, error: "Email e password richieste." });
+    }
+
+    if (!transporter) {
+      return reply.code(500).send({ ok: false, error: "SMTP non configurato: impossibile inviare email di verifica." });
+    }
+
+    // controlla se esiste
+    const ex = await db("SELECT id, email_verified FROM users WHERE lower(email)=lower($1) LIMIT 1", [email]);
+    if (ex.rows[0]) {
+      // non rivelare troppo, ma puoi dare messaggio utile
+      return reply.code(409).send({ ok: false, error: "Email già registrata." });
+    }
 
     const id = randomUUID();
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const tokenPlain = newVerifyToken();
+    const tokenHash = hashToken(tokenPlain);
 
     const q = await db(
-      `INSERT INTO users (id, email, password_hash)
-       VALUES ($1, $2, $3)
-       RETURNING id,email,phone,created_at,stripe_account_id,wallet_cents`,
-      [id, cleanEmail, passwordHash]
+      `INSERT INTO users (id, email, password_hash, email_verified, email_verify_token, email_verify_expires)
+       VALUES ($1,$2,$3,false,$4, now() + interval '24 hours')
+       RETURNING id, email, created_at`,
+      [id, email, passwordHash, tokenHash]
     );
 
-    const u = q.rows[0];
-    const token = signToken({ id: u.id });
+    await sendVerifyEmail(email, tokenPlain);
 
     return reply.send({
       ok: true,
-      token,
-      user: {
-        id: u.id,
-        email: u.email,
-        phone: u.phone,
-        createdAt: u.created_at,
-        stripe_account_id: u.stripe_account_id || null,
-      },
+      needs_verification: true,
+      user: { id: q.rows[0].id, email: q.rows[0].email, createdAt: q.rows[0].created_at },
     });
   } catch (e) {
-    // unique violation (email già usata)
-    if (String(e.code) === "23505") {
-      return reply.code(409).send({ ok: false, error: "Email già registrata." });
-    }
-    request.log.error(e);
-    return reply.code(500).send({ ok: false, error: "Errore registrazione" });
+    request.log.error(e, "email register failed");
+    return reply.code(500).send({ ok: false, error: e?.message || "Errore registrazione" });
   }
 });
 
@@ -839,6 +887,9 @@ try {
   if (!ok) return reply.code(401).send({ ok: false, error: "Credenziali errate." });
 
   const token = signToken({ id: u.id });
+if (u.email_verified === false) {
+  return reply.code(403).send({ ok: false, error: "Email non verificata. Controlla la posta e clicca VERIFY NOW." });
+}
 
   return reply.send({
     ok: true,
@@ -851,6 +902,38 @@ try {
       stripe_account_id: u.stripe_account_id || null,
     },
   });
+});
+
+// ---------- AUTH: EMAIL VERIFY LINK ----------
+app.post("/auth/email/verify-link", async (request, reply) => {
+  try {
+    if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
+
+    const tokenPlain = String(request.body?.token || "").trim();
+    if (!tokenPlain) return reply.code(400).send({ ok: false, error: "Token mancante." });
+
+    const tokenHash = hashToken(tokenPlain);
+
+    const { rows } = await db(
+      `UPDATE users
+       SET email_verified=true,
+           email_verify_token=NULL,
+           email_verify_expires=NULL
+       WHERE email_verify_token=$1
+         AND (email_verify_expires IS NULL OR email_verify_expires > now())
+       RETURNING id, email`,
+      [tokenHash]
+    );
+
+    if (!rows[0]) {
+      return reply.code(400).send({ ok: false, error: "Link non valido o scaduto." });
+    }
+
+    return reply.send({ ok: true, verified: true });
+  } catch (e) {
+    request.log.error(e, "verify link failed");
+    return reply.code(500).send({ ok: false, error: e?.message || "Errore verifica email" });
+  }
 });
 
  // ---------- AUTH: SMS SEND CODE ----------
@@ -1073,14 +1156,14 @@ app.post("/auth/sms/verify", async (request, reply) => {
   });
 });
 
-  // ---------------- REQUESTS ----------------
+ // ---------------- REQUESTS ----------------
 
-// Pubblico: solo OPEN
-app.get("/requests", async (request, reply) => {
+// FEED protetto (usato dalla pagina /requests del frontend)
+app.get("/requests/feed", { preHandler: [requireAuth] }, async (request, reply) => {
   if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
 
   const { rows } = await db(
-    "SELECT id,user_id,title,description,city,created_at,status FROM requests WHERE status='OPEN' ORDER BY created_at DESC"
+    "SELECT id,user_id,title,description,city,created_at,status FROM requests WHERE COALESCE(UPPER(status),'') <> 'RELEASED' ORDER BY created_at DESC"
   );
 
   const list = rows.map((r) => ({
@@ -1096,6 +1179,133 @@ app.get("/requests", async (request, reply) => {
   return reply.send({ ok: true, items: list, requests: list });
 });
 
+// Pubblico: solo OPEN (se ti serve ancora da qualche parte)
+app.get("/requests", async (request, reply) => {
+  if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
+
+  const { rows } = await db(
+    "SELECT id,user_id,title,description,city,created_at,status FROM requests WHERE UPPER(status) <> 'RELEASED' ORDER BY created_at DESC"
+  );
+
+  const list = rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    title: r.title,
+    description: r.description,
+    city: r.city,
+    createdAt: r.created_at,
+    status: r.status,
+  }));
+
+  return reply.send({ ok: true, items: list, requests: list });
+});
+
+// CREA richiesta (bottone "I need" fa POST /requests)
+app.post("/requests", { preHandler: [requireAuth] }, async (request, reply) => {
+  if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
+
+  const title = String(request.body?.title || "").trim();
+  const description = String(request.body?.description || "").trim();
+  const city = String(request.body?.city || "").trim();
+
+  if (!title) return reply.code(400).send({ ok: false, error: "Titolo obbligatorio" });
+  if (!description) return reply.code(400).send({ ok: false, error: "Descrizione obbligatoria" });
+
+  const id = randomUUID();
+  const uid = String(request.user.id);
+
+  const ins = await db(
+    `INSERT INTO requests (id, user_id, title, description, city, status)
+     VALUES ($1,$2,$3,$4,$5,'OPEN')
+     RETURNING id,user_id,title,description,city,created_at,status`,
+    [id, uid, title, description, city || null]
+  );
+
+  const r = ins.rows[0];
+  return reply.send({
+    ok: true,
+    request: {
+      id: r.id,
+      userId: r.user_id,
+      title: r.title,
+      description: r.description,
+      city: r.city,
+      createdAt: r.created_at,
+      status: r.status,
+    },
+  });
+});
+
+// ACCEPT (la pagina /requests fa POST /requests/:id/accept)
+app.post("/requests/:id/accept", { preHandler: [requireAuth] }, async (request, reply) => {
+  if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
+
+  const requestId = String(request.params.id);
+  const helperId = String(request.user.id);
+
+  try {
+    await db("BEGIN");
+
+    // blocca la richiesta per evitare race
+    const rq = await db("SELECT * FROM requests WHERE id=$1 FOR UPDATE", [requestId]);
+    const r = rq.rows[0];
+
+    if (!r) {
+      await db("ROLLBACK");
+      return reply.code(404).send({ ok: false, error: "Richiesta non trovata" });
+    }
+
+    if (String(r.status).toUpperCase() !== "OPEN") {
+      await db("ROLLBACK");
+      return reply.code(409).send({ ok: false, error: "Richiesta non disponibile" });
+    }
+
+    if (String(r.user_id) === helperId) {
+      await db("ROLLBACK");
+      return reply.code(400).send({ ok: false, error: "Non puoi accettare la tua richiesta" });
+    }
+
+    // idempotenza: se un match esiste già, ritorna quello
+    const existing = await db("SELECT * FROM matches WHERE request_id=$1 LIMIT 1", [requestId]);
+    if (existing.rows[0]) {
+      await db("COMMIT");
+      return reply.send({ ok: true, match: { id: existing.rows[0].id } });
+    }
+
+    const matchId = randomUUID();
+
+    const ins = await db(
+      `INSERT INTO matches (id, request_id, user_id, helper_id, status)
+       VALUES ($1,$2,$3,$4,'ACCEPTED')
+       RETURNING id, request_id, user_id, helper_id, created_at, status`,
+      [matchId, requestId, String(r.user_id), helperId]
+    );
+
+    await db("UPDATE requests SET status='ACCEPTED' WHERE id=$1", [requestId]);
+
+    await db("COMMIT");
+
+    const m = ins.rows[0];
+    return reply.send({
+      ok: true,
+      match: {
+        id: m.id,
+        requestId: m.request_id,
+        userId: m.user_id,
+        helperId: m.helper_id,
+        createdAt: m.created_at,
+        status: m.status,
+      },
+    });
+  } catch (e) {
+    try {
+      await db("ROLLBACK");
+    } catch {}
+    return reply.code(500).send({ ok: false, error: e.message || "Errore accept" });
+  }
+});
+
+// DETTAGLIO richiesta (lascia la tua logica di visibilità come già hai)
 app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) => {
   if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
 
@@ -1126,7 +1336,6 @@ app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) =
     });
   }
 
-  // ✅ FIX: reqObj esiste davvero
   const reqObj = {
     id: r.id,
     userId: r.user_id,
@@ -1160,12 +1369,31 @@ app.get("/requests/:id", { preHandler: [requireAuth] }, async (request, reply) =
       }
     : null;
 
-  // ✅ Richiesta #1: il richiedente NON deve poter vedere Cash/Trust dell’helper
-  if (matchObj && !isHelper) {
-    delete matchObj.helper_payout_mode;
-  }
+ if (matchObj) {
+  const mode = String(matchObj.helper_payout_mode || "").trim().toLowerCase();
+  const modeSet = mode && mode !== "unset";
 
-  // opzionale: sync status Stripe
+  // L’helper deve poter sapere se il richiedente può pagare col wallet (solo boolean)
+  if (isHelper) {
+    const amountCents = Number(matchObj.amount_cents || 0);
+    if (amountCents > 0) {
+      const wr = await db("SELECT wallet_cents FROM users WHERE id=$1", [String(matchObj.userId)]);
+      const walletCents = Number(wr.rows[0]?.wallet_cents || 0);
+      matchObj.requester_wallet_ok = walletCents >= amountCents;
+    } else {
+      matchObj.requester_wallet_ok = null; // prezzo non ancora impostato
+    }
+  } else {
+    // Richiedente: vede la scelta SOLO dopo che l’helper l’ha fatta
+    if (isOwner) {
+      if (!modeSet) delete matchObj.helper_payout_mode;
+    } else {
+      // Altri utenti: mai
+      delete matchObj.helper_payout_mode;
+    }
+  }
+}
+
   if (matchObj && stripe && matchObj.payment_intent_id) {
     try {
       const pi = await stripe.paymentIntents.retrieve(matchObj.payment_intent_id);
@@ -1354,6 +1582,26 @@ if (voucherCodeRaw) {
       return reply.code(404).send({ ok: false, error: "Match non trovato" });
     }
 
+// ✅ Impone che il richiedente paghi SOLO nel metodo scelto dall'helper
+const useWallet = !!request.body?.use_wallet;
+
+let mode = String(row.helper_payout_mode || "").trim().toLowerCase();
+if (mode === "trust") mode = "cash"; // legacy
+if (!mode || mode === "unset") {
+  await db("ROLLBACK");
+  return reply.code(400).send({ ok: false, error: "Attendi che l’helper scelga Cash o Wallet." });
+}
+
+if (mode === "wallet" && !useWallet) {
+  await db("ROLLBACK");
+  return reply.code(400).send({ ok: false, error: "Questo match richiede pagamento con Wallet." });
+}
+
+if (mode === "cash" && useWallet) {
+  await db("ROLLBACK");
+  return reply.code(400).send({ ok: false, error: "Questo match richiede pagamento con Carta." });
+}
+
     // 2) Accesso: solo user o helper
     const isUser = String(row.user_id) === String(request.user.id);
     const isHelper = String(row.helper_id) === String(request.user.id);
@@ -1384,114 +1632,16 @@ if (voucherCodeRaw) {
     const priceCents = Number(row.price_cents);
     const feeCents = calcFeeCents(priceCents);
     const amountCents = priceCents + feeCents;
+// Checkout voucher disabilitato: si paga sempre l'importo pieno (price + fee)
+const voucherCode = null;
+const voucherCents = 0;
+const payableCents = amountCents;
 
-   // ---------------- VOUCHER (single-use + opzionale assegnazione a phone) ----------------
-    let voucherCode = null;
-    let voucherCents = 0;
-
-    if (voucherCodeRaw) {
-      const codeUp = voucherCodeRaw.toUpperCase();
-      const userPhone = String(request.user.phone || "").trim();
-
-      // anti-multi-account: voucher solo se telefono verificato
-      if (!userPhone) {
-        await db("ROLLBACK");
-        return reply.code(400).send({ ok: false, error: "Per usare un voucher devi verificare il telefono (login SMS)." });
-      }
-
-      // valore voucher: prima DB (vouchers), fallback ENV (voucherMap)
-      let cents = 0;
-      const vdb = await db("SELECT cents, is_active, assigned_phone FROM vouchers WHERE code=$1 LIMIT 1", [codeUp]);
-      if (vdb.rows[0]) {
-        const v = vdb.rows[0];
-        if (v.is_active === false) {
-          await db("ROLLBACK");
-          return reply.code(400).send({ ok: false, error: "Voucher disattivato" });
-        }
-        if (v.assigned_phone && String(v.assigned_phone).trim() !== userPhone) {
-          await db("ROLLBACK");
-          return reply.code(403).send({ ok: false, error: "Voucher non valido per questo numero" });
-        }
-        cents = Number(v.cents || 0);
-      } else {
-        cents = Number(voucherMap.get(codeUp) || 0);
-      }
-
-      if (!cents || cents <= 0) {
-        await db("ROLLBACK");
-        return reply.code(400).send({ ok: false, error: "Voucher non valido" });
-      }
-
-      // Regola: se il prezzo lavoro è più basso del voucher, NON si può usare
-      if (priceCents < cents) {
-        await db("ROLLBACK");
-        return reply.code(400).send({ ok: false, error: "Voucher non applicabile: prezzo inferiore al voucher" });
-      }
-
-      // Single-use: riserva il voucher (oppure fallisci se già usato / in uso)
-      const ex = await db(
-        "SELECT code, user_id, match_id, status, reserved_at, redeemed_at FROM voucher_redemptions WHERE code=$1 FOR UPDATE",
-        [codeUp]
-      );
-      const r = ex.rows[0];
-
-      if (r) {
-        const sameMatch = r.match_id && String(r.match_id) === String(id);
-        const status = String(r.status || "").toLowerCase();
-        const redeemed = !!r.redeemed_at || status === "redeemed";
-
-        if (redeemed && !sameMatch) {
-          await db("ROLLBACK");
-          return reply.code(400).send({ ok: false, error: "Voucher già usato" });
-        }
-
-        if (!redeemed && !sameMatch) {
-          const reservedAt = r.reserved_at ? new Date(r.reserved_at).getTime() : 0;
-          const ageMin = reservedAt ? (Date.now() - reservedAt) / 60000 : 0;
-
-          // se è "fresco", è in uso da qualcun altro
-          if (reservedAt && ageMin < VOUCHER_RESERVATION_MINUTES) {
-            await db("ROLLBACK");
-            return reply.code(400).send({ ok: false, error: "Voucher già in uso (riprova tra poco)" });
-          }
-
-          // se è vecchio, lo libero
-          await db("DELETE FROM voucher_redemptions WHERE code=$1", [codeUp]);
-        }
-      }
-
-      // crea (o rinnova) la reservation per QUESTO match (idempotente)
-      const ins = await db(
-        `INSERT INTO voucher_redemptions (code, user_id, match_id, cents, status, reserved_at, redeemed_at)
-         VALUES ($1, $2, $3, $4, 'reserved', now(), NULL)
-         ON CONFLICT (code) DO UPDATE
-           SET user_id=EXCLUDED.user_id,
-               match_id=EXCLUDED.match_id,
-               cents=EXCLUDED.cents,
-               status='reserved',
-               reserved_at=now(),
-               redeemed_at=NULL
-         WHERE voucher_redemptions.match_id = EXCLUDED.match_id
-         RETURNING code`,
-        [codeUp, request.user.id, id, cents]
-      );
-
-      if (ins.rowCount === 0) {
-        await db("ROLLBACK");
-        return reply.code(400).send({ ok: false, error: "Voucher già usato o in uso" });
-      }
-
-      voucherCode = codeUp;
-      voucherCents = cents;
-    }
-
-    const payableCents = Math.max(0, amountCents - voucherCents);
-
-    // Salvo fee/amount + voucher su DB (così restano fissi)
-    await db(
-      "UPDATE matches SET fee_cents=$1, amount_cents=$2, voucher_code=$3, voucher_cents=$4 WHERE id=$5",
-      [feeCents, amountCents, voucherCode, voucherCents, id]
-    );
+// Salvo fee/amount (e azzero eventuali voucher legacy)
+await db(
+  "UPDATE matches SET fee_cents=$1, amount_cents=$2, voucher_code=NULL, voucher_cents=0 WHERE id=$3",
+  [feeCents, amountCents, id]
+);
 
     // ---------------- WALLET ----------------
     if (useWallet) {
@@ -1659,67 +1809,114 @@ if (upWallet.rowCount === 0) {
 });
 
 // ---------- MATCH: RELEASE (CAPTURE) ----------
-// Helper sceglie come essere pagato:
-// - cash  => payout pieno
-// - trust => rinuncia al valore del voucher e prende punti fiducia (voucher_points)
 app.post("/matches/:id/payout-mode", { preHandler: [requireAuth] }, async (request, reply) => {
   if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
 
-  const matchId = String(request.params.id);
-  const mode = String(request.body?.mode || "").trim().toLowerCase();
+  const id = String(request.params.id);
+  const modeRaw = String(request.body?.mode || "").trim().toLowerCase();
+  const mode = modeRaw === "cash" ? "cash" : modeRaw === "wallet" ? "wallet" : "";
 
-  if (mode !== "cash" && mode !== "trust") {
-    return reply.code(400).send({ ok: false, error: "mode non valido (usa 'cash' o 'trust')" });
+  if (!mode) {
+    return reply.code(400).send({ ok: false, error: "Modalità non valida. Usa 'cash' o 'wallet'." });
   }
 
-  const { rows } = await db("SELECT * FROM matches WHERE id=$1 LIMIT 1", [matchId]);
-  const row = rows[0];
-  if (!row) return reply.code(404).send({ ok: false, error: "Match non trovato" });
+  try {
+    await db("BEGIN");
 
-  if (String(row.helper_id) !== String(request.user.id)) {
-    return reply.code(403).send({ ok: false, error: "Solo l'helper può scegliere cash/trust" });
+    const mq = await db("SELECT * FROM matches WHERE id=$1 FOR UPDATE", [id]);
+    const row = mq.rows[0];
+
+    if (!row) {
+      await db("ROLLBACK");
+      return reply.code(404).send({ ok: false, error: "Match non trovato" });
+    }
+
+    // solo l'helper può scegliere
+    if (String(row.helper_id) !== String(request.user.id)) {
+      await db("ROLLBACK");
+      return reply.code(403).send({ ok: false, error: "Non autorizzato" });
+    }
+
+    const status = String(row.status || "").toUpperCase();
+    if (status === "RELEASED" || status === "RELEASING") {
+      await db("ROLLBACK");
+      return reply.code(400).send({ ok: false, error: "Match già rilasciato" });
+    }
+
+    // Non cambiare dopo il pagamento
+    const paid =
+      row.paid_with_wallet === true ||
+      status === "HELD" ||
+      ["succeeded", "requires_capture"].includes(String(row.payment_status || "").toLowerCase());
+
+    if (paid) {
+      await db("ROLLBACK");
+      return reply.code(400).send({ ok: false, error: "Non puoi cambiare modalità dopo il pagamento" });
+    }
+
+    const amountCents = Number(row.amount_cents || 0);
+    if (!amountCents || amountCents <= 0) {
+      await db("ROLLBACK");
+      return reply.code(400).send({ ok: false, error: "Imposta prima il prezzo (amount_cents mancante)" });
+    }
+
+    // Se vuole wallet: il richiedente deve avere saldo sufficiente
+    if (mode === "wallet") {
+      const wr = await db("SELECT wallet_cents FROM users WHERE id=$1", [String(row.user_id)]);
+      const walletCents = Number(wr.rows[0]?.wallet_cents || 0);
+      if (walletCents < amountCents) {
+        await db("ROLLBACK");
+        return reply.code(400).send({
+          ok: false,
+          error: "Il richiedente non ha saldo wallet sufficiente per pagare con wallet.",
+        });
+      }
+    }
+
+if (mode === "cash") {
+  const hr = await db("SELECT stripe_account_id FROM users WHERE id=$1", [String(row.helper_id)]);
+  const helperStripeAccountId = hr.rows[0]?.stripe_account_id || null;
+  if (!helperStripeAccountId) {
+    await db("ROLLBACK");
+    return reply.code(400).send({ ok: false, error: "Helper non ha Stripe Connect attivo (scegli Wallet o attiva Stripe)." });
   }
+}
 
-  const paid =
-    row.paid_with_wallet === true ||
-    String(row.status || "").toUpperCase() === "HELD" ||
-    ["succeeded", "requires_capture"].includes(String(row.payment_status || "").toLowerCase());
+    const up = await db(
+      "UPDATE matches SET helper_payout_mode=$1 WHERE id=$2 RETURNING *",
+      [mode, id]
+    );
 
-  if (!paid) {
-    return reply.code(400).send({ ok: false, error: "Puoi scegliere cash/trust solo dopo il pagamento" });
+    await db("COMMIT");
+
+    const m = up.rows[0];
+    return reply.send({
+      ok: true,
+      match: {
+        id: m.id,
+        requestId: m.request_id,
+        userId: m.user_id,
+        helperId: m.helper_id,
+        createdAt: m.created_at,
+        status: m.status,
+        price_cents: m.price_cents,
+        fee_cents: m.fee_cents,
+        amount_cents: m.amount_cents,
+        voucher_code: m.voucher_code,
+        voucher_cents: m.voucher_cents,
+        helper_payout_mode: m.helper_payout_mode,
+        payment_intent_id: m.payment_intent_id,
+        payment_status: m.payment_status,
+        paid_with_wallet: m.paid_with_wallet,
+        paidAt: m.paid_at,
+        transfer_id: m.transfer_id,
+        releasedAt: m.released_at,
+      },
+    });
+  } catch (e) {
+    try { await db("ROLLBACK"); } catch {}
+    return reply.code(500).send({ ok: false, error: e.message || "Errore payout mode" });
   }
-
-  const st = String(row.status || "").toUpperCase();
-  if (st === "RELEASING" || st === "RELEASED") {
-    return reply.code(409).send({ ok: false, error: "Non puoi cambiare modalità dopo il rilascio" });
-  }
-
-  const up = await db("UPDATE matches SET helper_payout_mode=$1 WHERE id=$2 RETURNING *", [mode, matchId]);
-  const m = up.rows[0];
-
-  return reply.send({
-    ok: true,
-    match: {
-      id: m.id,
-      requestId: m.request_id,
-      userId: m.user_id,
-      helperId: m.helper_id,
-      createdAt: m.created_at,
-      status: m.status,
-      price_cents: m.price_cents,
-      fee_cents: m.fee_cents,
-      amount_cents: m.amount_cents,
-      voucher_code: m.voucher_code,
-      voucher_cents: m.voucher_cents,
-      helper_payout_mode: m.helper_payout_mode,
-      payment_intent_id: m.payment_intent_id,
-      payment_status: m.payment_status,
-      paid_with_wallet: m.paid_with_wallet,
-      paidAt: m.paid_at,
-      transfer_id: m.transfer_id,
-      releasedAt: m.released_at,
-    },
-  });
 });
 
 // ---------- MATCH: RELEASE ----------
@@ -1739,13 +1936,15 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       return reply.code(404).send({ ok: false, error: "Match non trovato" });
     }
 
+    const requestId = String(row.request_id);
+
     // solo requester rilascia
     if (String(row.user_id) !== String(request.user.id)) {
       await db("ROLLBACK");
       return reply.code(403).send({ ok: false, error: "Solo il richiedente può rilasciare" });
     }
 
-    if (["RELEASING", "RELEASED"].includes(String(row.status))) {
+    if (["RELEASING", "RELEASED"].includes(String(row.status || "").toUpperCase())) {
       await db("ROLLBACK");
       return reply.code(409).send({ ok: false, error: "Rilascio già avviato o completato." });
     }
@@ -1756,9 +1955,19 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       return reply.code(400).send({ ok: false, error: "Prezzo non valido" });
     }
 
-    const payoutMode = String(row.helper_payout_mode || "cash").trim().toLowerCase();
+    // payout mode: cash | wallet (legacy trust -> cash)
+    let payoutMode = String(row.helper_payout_mode || "").trim().toLowerCase();
+    if (payoutMode === "trust") payoutMode = "cash"; // legacy
+    if (!payoutMode || payoutMode === "unset") {
+      await db("ROLLBACK");
+      return reply.code(400).send({ ok: false, error: "L’helper non ha ancora scelto Cash/Wallet." });
+    }
+    if (payoutMode !== "cash" && payoutMode !== "wallet") {
+      await db("ROLLBACK");
+      return reply.code(400).send({ ok: false, error: "Modalità payout non valida." });
+    }
 
-    // ✅ evita “release” prima del pagamento
+    // evita release prima del pagamento
     const paid =
       row.paid_with_wallet === true ||
       String(row.status || "").toUpperCase() === "HELD" ||
@@ -1769,21 +1978,26 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       return reply.code(400).send({ ok: false, error: "Devi prima completare il pagamento prima di rilasciare." });
     }
 
-    // Nuova logica:
-    // - cash  => trasferisco il prezzo del lavoro
-    // - trust => nessun trasferimento: converto il prezzo in Trust points (decimali)
-    const payoutCents = payoutMode === "cash" ? priceCents : 0;
+    const payoutCents = priceCents;      // l’helper riceve il prezzo del lavoro
+    const trustPointsAwarded = 3;        // ✅ +3 per lavoro rilasciato
 
-    // 1€ = 1 Trust point (2 decimali)
-    const trustPointsAwarded =
-      payoutMode === "trust" ? Math.round((priceCents / 100) * 100) / 100 : 0;
+    // ---------------- WALLET PAYOUT: accredito wallet helper, NO Stripe ----------------
+    if (payoutMode === "wallet") {
+      // deve essere un pagamento wallet “held”
+      if (!row.paid_with_wallet || String(row.status || "").toUpperCase() !== "HELD") {
+        await db("ROLLBACK");
+        return reply.code(400).send({ ok: false, error: "Pagamento wallet non in stato HELD." });
+      }
 
-    // ✅ TRUST: non richiede Stripe Connect, non crea transfer
-    if (payoutMode === "trust") {
+      await db(
+        "UPDATE users SET wallet_cents = COALESCE(wallet_cents,0) + $1, trust_points = COALESCE(trust_points,0) + $2 WHERE id=$3",
+        [payoutCents, trustPointsAwarded, String(row.helper_id)]
+      );
+
       const up = await db(
         `UPDATE matches
          SET transfer_id=NULL,
-             payment_status='released_trust',
+             payment_status='released_wallet',
              status='RELEASED',
              released_at=now()
          WHERE id=$1
@@ -1791,19 +2005,14 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
         [id]
       );
 
-      if (trustPointsAwarded > 0) {
-        await db(
-          "UPDATE users SET trust_points = trust_points + $1 WHERE id=$2",
-          [trustPointsAwarded, String(row.helper_id)]
-        );
-      }
+      await db("UPDATE requests SET status='RELEASED' WHERE id=$1", [requestId]);
 
       await db("COMMIT");
 
       const m = up.rows[0];
       return reply.send({
         ok: true,
-        payout_cents: 0,
+        payout_cents: payoutCents,
         trust_points_awarded: trustPointsAwarded,
         match: {
           id: m.id,
@@ -1828,7 +2037,7 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       });
     }
 
-    // CASH: serve Stripe
+    // ---------------- CASH PAYOUT: Stripe transfer ----------------
     if (!stripe) {
       await db("ROLLBACK");
       return reply.code(500).send({ ok: false, error: "Stripe non configurato" });
@@ -1844,14 +2053,14 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
 
     await db("UPDATE matches SET status='RELEASING' WHERE id=$1", [id]);
 
-    // WALLET cash => transfer da saldo piattaforma
+    // Se il pagamento è stato fatto con wallet: transfer da saldo piattaforma
     if (row.paid_with_wallet === true) {
       const tr = await stripe.transfers.create({
         amount: payoutCents,
         currency: "eur",
         destination: helperStripeAccountId,
         transfer_group: `match_${String(row.id)}`,
-        metadata: { matchId: String(row.id), requestId: String(row.request_id), payout_mode: payoutMode },
+        metadata: { matchId: String(row.id), requestId, payout_mode: payoutMode },
       });
 
       const up = await db(
@@ -1865,13 +2074,16 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
         [tr.id, id]
       );
 
+      await db("UPDATE users SET trust_points = COALESCE(trust_points,0) + $1 WHERE id=$2", [trustPointsAwarded, String(row.helper_id)]);
+      await db("UPDATE requests SET status='RELEASED' WHERE id=$1", [requestId]);
+
       await db("COMMIT");
 
       const m = up.rows[0];
       return reply.send({
         ok: true,
         payout_cents: payoutCents,
-        trust_points_awarded: 0,
+        trust_points_awarded: trustPointsAwarded,
         match: {
           id: m.id,
           requestId: m.request_id,
@@ -1895,7 +2107,7 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       });
     }
 
-    // CARD cash => transfer legato alla charge
+    // Pagamento con carta: transfer legato alla charge
     if (!row.payment_intent_id) {
       await db("ROLLBACK");
       return reply.code(400).send({ ok: false, error: "payment_intent_id mancante" });
@@ -1912,7 +2124,7 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       currency: "eur",
       destination: helperStripeAccountId,
       transfer_group: `match_${String(row.id)}`,
-      metadata: { matchId: String(row.id), requestId: String(row.request_id), payout_mode: payoutMode },
+      metadata: { matchId: String(row.id), requestId, payout_mode: payoutMode },
     };
 
     if (pi.latest_charge && payoutCents <= Number(pi.amount || 0)) {
@@ -1932,13 +2144,16 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
       [tr.id, id]
     );
 
+    await db("UPDATE users SET trust_points = COALESCE(trust_points,0) + $1 WHERE id=$2", [trustPointsAwarded, String(row.helper_id)]);
+    await db("UPDATE requests SET status='RELEASED' WHERE id=$1", [requestId]);
+
     await db("COMMIT");
 
     const m = up.rows[0];
     return reply.send({
       ok: true,
       payout_cents: payoutCents,
-      trust_points_awarded: 0,
+      trust_points_awarded: trustPointsAwarded,
       match: {
         id: m.id,
         requestId: m.request_id,
@@ -1963,8 +2178,6 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
   } catch (e) {
     try { await db("ROLLBACK"); } catch {}
     request.log.error(e, "release failed");
-
-    // errore utile (Stripe) invece di “Errore rilascio” secco
     const msg = e?.raw?.message || e?.message || "Errore rilascio";
     return reply.code(400).send({ ok: false, error: msg });
   }
