@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Layout from "../components/Layout";
@@ -21,6 +21,29 @@ function looksLike404(err) {
 
 export default function LoginPage() {
   const router = useRouter();
+useEffect(() => {
+  const token = router?.query?.verify;
+  if (!token) return;
+
+  (async () => {
+    try {
+      setMsg("Verifica email in corso…");
+      await apiFetch("/auth/email/verify-link", {
+        method: "POST",
+        auth: false,
+        body: { token },
+      });
+
+      setMsg("Email verificata ✅ Reindirizzamento alla Home…");
+      setTimeout(() => {
+        router.replace("/");
+      }, 700);
+    } catch (err) {
+      setMsg(err?.message || "Verifica non riuscita");
+    }
+  })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [router?.query?.verify]);
 
   const [mode, setMode] = useState("email");
   const [email, setEmail] = useState("");
@@ -41,11 +64,19 @@ const [showPassword, setShowPassword] = useState(false);
     try {
       setLoading(true);
 
-      const data = await apiFetch("/auth/email/login", {
-        method: "POST",
-        auth: false,
-        body: { email, password },
-      });
+   const data = await apiFetch("/auth/email/login", {
+  method: "POST",
+  auth: false,
+  body: { email, password },
+});
+
+const u = data?.user;
+
+// Se vuoi bloccare il login lato frontend:
+if (u && u.email_verified !== true) {
+  setMsg("Email non verificata. Controlla la posta e clicca VERIFY NOW.");
+  return; // NON salvare token / NON fare redirect
+}
 
       const token = data?.token || data?.access_token;
       if (!token) throw new Error("Login riuscito ma token mancante nella risposta API");

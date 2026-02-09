@@ -2,10 +2,11 @@ import Layout from "../components/Layout";
 
 export default function TrustPage() {
   return (
-    <Layout title="Trust">
-      <div className="card">
-        <h1>Trust</h1>
+    <Layout title="WeTrust — Trust">
+  <div className="wrap">
+    <h1>Trust</h1>
 
+    <section className="card">
         <p>
           WeTrust funziona con un sistema semplice: le richieste vengono create dal richiedente,
           un helper le accetta, imposta il prezzo e sceglie come vuole essere pagato.
@@ -48,7 +49,51 @@ export default function TrustPage() {
           <li>In Cash: viene eseguito un transfer Stripe verso l’helper.</li>
           <li>In Wallet: viene accreditato il wallet dell’helper.</li>
         </ul>
+ </section>
       </div>
+ <style jsx>{`
+        .wrap {
+          max-width: 900px;
+          margin: 0 auto;
+          padding: 16px 0;
+        }
+        h1 {
+          font-size: 30px;
+          margin: 6px 0 8px;
+        }
+        .sub {
+          opacity: 0.9;
+          margin-bottom: 14px;
+        }
+        .card {
+          border-radius: 18px;
+          background: rgba(15, 23, 42, 0.95);
+          border: 1px solid rgba(148, 163, 184, 0.4);
+          padding: 14px 16px;
+        }
+        h2 {
+          margin: 16px 0 8px;
+          font-size: 18px;
+        }
+        p,
+        li {
+          opacity: 0.92;
+          line-height: 1.55;
+        }
+        ul {
+          padding-left: 18px;
+          margin: 6px 0 10px;
+        }
+        .note {
+          margin-top: 14px;
+          opacity: 0.85;
+          font-size: 13px;
+        }
+        :global(a) {
+          color: #00b4ff;
+          text-decoration: underline;
+        }
+      `}</style>
     </Layout>
   );
 }

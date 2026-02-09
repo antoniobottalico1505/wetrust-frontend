@@ -13,22 +13,28 @@ const [showPassword, setShowPassword] = useState(false);
   const [msg, setMsg] = useState("");
 
   async function register(e) {
-    e.preventDefault();
-    setMsg("");
-    try {
-      setLoading(true);
-      const data = await apiFetch("/auth/email/register", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      setSession(data.token, data.user);
-      window.location.href = "/";
-    } catch (err) {
-      setMsg(err.message);
-    } finally {
-      setLoading(false);
-    }
+  e.preventDefault();
+  setMsg("");
+  try {
+    setLoading(true);
+
+    await apiFetch("/auth/email/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+
+    // ✅ niente login automatico: serve verifica email
+    setMsg("Registrazione completata. Ti abbiamo inviato una mail: aprila e premi VERIFY NOW per attivare l’account.");
+
+    // opzionale: pulisci i campi
+    // setEmail("");
+    // setPassword("");
+  } catch (err) {
+    setMsg(err.message);
+  } finally {
+    setLoading(false);
   }
+}
 
   return (
     <Layout title="Registrati — WeTrust">

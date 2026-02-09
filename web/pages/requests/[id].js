@@ -266,7 +266,6 @@ await load({ keepMsg: true, silent: true });
       setMatch(data.match);
 
       const payable = data.payable_cents ?? data.amount_cents;
-      const vText = data.voucher_cents ? ` — Voucher: -${centsToEUR(data.voucher_cents)}` : "";
       setMsg(`Totale: ${centsToEUR(data.amount_cents)} — Da pagare: ${centsToEUR(payable)}${vText}`);
     } catch (err) {
       setMsg(err?.message || "Errore avvio pagamento");
@@ -387,10 +386,6 @@ const priceSet = Number(match?.price_cents || 0) > 0;
                   <strong>Fee WeTrust:</strong> {match.fee_cents ? centsToEUR(match.fee_cents) : "—"}
                 </p>
                 <p className="hint">Il denaro viene bloccato e rilasciato solo con conferma del richiedente.</p>
-<p className="line">
-  <strong>Voucher:</strong>{" "}
-  {match.voucher_cents ? `-${centsToEUR(match.voucher_cents)}` : "—"}
-</p>
 {user && match && String(user.id) === String(match.helperId) ? (
   <p className="line">
     <strong>Payout:</strong>{" "}
