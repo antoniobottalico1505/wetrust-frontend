@@ -310,14 +310,25 @@ try { await refresh(); } catch {}
   }
 
   if (!id) return null;
+const city = reqData ? pickCity(reqData) : "";
 
-  const city = reqData ? pickCity(reqData) : "";
-const isRequester = !!(user && match && String(user.id) === String(match.userId));
+const matchUserId = match?.userId ?? match?.user_id ?? "";
+const matchHelperId = match?.helperId ?? match?.helper_id ?? "";
+
+const isRequester = !!(user && match && String(user.id) === String(matchUserId));
+const isHelper = !!(user && match && String(user.id) === String(matchHelperId));
+
 const matchStatus = String(match?.status || "").toUpperCase();
-const isPaid = !!(match?.paid_with_wallet || matchStatus === "HELD" || String(match?.payment_status || "").toLowerCase() === "succeeded");
+const isPaid = !!(
+  match?.paid_with_wallet ||
+  matchStatus === "HELD" ||
+  String(match?.payment_status || "").toLowerCase() === "succeeded"
+);
 const isReleased = matchStatus === "RELEASED" || matchStatus === "RELEASING";
+
 const helperMode = String(match?.helper_payout_mode || "").toLowerCase();
-const helperModeSet = helperMode && helperMode !== "unset";
+const helperModeSet = !!helperMode && helperMode !== "unset";
+
 const requesterWalletOk = match?.requester_wallet_ok; // true/false/null (solo helper)
 const priceSet = Number(match?.price_cents || 0) > 0;
 

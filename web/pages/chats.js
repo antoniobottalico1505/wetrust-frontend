@@ -222,7 +222,7 @@ export default function ChatsPage() {
         city: pickCity(r),
         desc: pickDesc(r),
         otherId,
-        otherLabel: pickOtherUserLabel({ ...m, otherId }),
+        otherLabel: otherId ? `Utente ${userCode(otherId)}` : "Utente",
       };
     });
   }, [matches, reqMap, me]);
