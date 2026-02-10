@@ -42,10 +42,10 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       stripe_account_id TEXT,
       wallet_cents INTEGER NOT NULL DEFAULT 0,
-      trust_points NUMERIC(12,2) NOT NULL DEFAULT 0
+      trust_points NUMERIC(12,2) NOT NULL DEFAULT 0,
 email_verified BOOLEAN NOT NULL DEFAULT false,
 email_verify_token TEXT,
-email_verify_expires TIMESTAMPTZ,
+email_verify_expires TIMESTAMPTZ
     );
   `);
 
@@ -835,13 +835,49 @@ app.post("/auth/email/register", async (request, reply) => {
       return reply.code(500).send({ ok: false, error: "SMTP non configurato: impossibile inviare email di verifica." });
     }
 
-    // controlla se esiste
-    const ex = await db("SELECT id, email_verified FROM users WHERE lower(email)=lower($1) LIMIT 1", [email]);
+    const ex = await db(
+      "SELECT id, email, email_verified, password_hash, created_at FROM users WHERE lower(email)=lower($1) LIMIT 1",
+      [email]
+    );
+
+    // ESISTE GIÀ
     if (ex.rows[0]) {
-      // non rivelare troppo, ma puoi dare messaggio utile
-      return reply.code(409).send({ ok: false, error: "Email già registrata." });
+      const u = ex.rows[0];
+
+      if (u.email_verified === true) {
+        return reply.code(409).send({ ok: false, error: "Email già registrata." });
+      }
+
+      // NON verificata: reinvio SOLO se password corretta
+      if (!u.password_hash) {
+        return reply.code(400).send({ ok: false, error: "Account incompleto. Contatta il supporto." });
+      }
+
+      const ok = await bcrypt.compare(String(password), String(u.password_hash));
+      if (!ok) return reply.code(401).send({ ok: false, error: "Credenziali errate." });
+
+      const tokenPlain = newVerifyToken();
+      const tokenHash = hashToken(tokenPlain);
+
+      await db(
+        `UPDATE users
+         SET email_verify_token=$1,
+             email_verify_expires=now() + interval '24 hours'
+         WHERE id=$2`,
+        [tokenHash, String(u.id)]
+      );
+
+      await sendVerifyEmail(email, tokenPlain);
+
+      return reply.send({
+        ok: true,
+        needs_verification: true,
+        resent: true,
+        user: { id: u.id, email: u.email, createdAt: u.created_at },
+      });
     }
 
+    // NUOVO UTENTE
     const id = randomUUID();
     const passwordHash = await bcrypt.hash(password, 10);
 
@@ -869,7 +905,7 @@ app.post("/auth/email/register", async (request, reply) => {
 });
 
   // ---------- AUTH: EMAIL LOGIN ----------
-  app.post("/auth/email/login", async (request, reply) => {
+ app.post("/auth/email/login", async (request, reply) => {
   const { email, password } = request.body || {};
   if (!email || !password) return reply.code(400).send({ ok: false, error: "Email e password obbligatori." });
 
@@ -877,19 +913,25 @@ app.post("/auth/email/register", async (request, reply) => {
   if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
 
   const { rows } = await db(
-    "SELECT id,email,password_hash,phone,created_at,stripe_account_id,wallet_cents FROM users WHERE lower(email)=lower($1) LIMIT 1",
+    "SELECT id,email,password_hash,phone,created_at,stripe_account_id,wallet_cents,email_verified FROM users WHERE lower(email)=lower($1) LIMIT 1",
     [cleanEmail]
   );
+
   const u = rows[0];
   if (!u || !u.password_hash) return reply.code(401).send({ ok: false, error: "Credenziali errate." });
 
   const ok = await bcrypt.compare(String(password), String(u.password_hash));
   if (!ok) return reply.code(401).send({ ok: false, error: "Credenziali errate." });
 
+  if (u.email_verified === false) {
+    return reply.code(403).send({
+      ok: false,
+      code: "EMAIL_NOT_VERIFIED",
+      error: "Email non verificata. Vai su Registrati per reinviare la mail di verifica.",
+    });
+  }
+
   const token = signToken({ id: u.id });
-if (u.email_verified === false) {
-  return reply.code(403).send({ ok: false, error: "Email non verificata. Controlla la posta e clicca VERIFY NOW." });
-}
 
   return reply.send({
     ok: true,
@@ -899,7 +941,9 @@ if (u.email_verified === false) {
       email: u.email,
       phone: u.phone,
       createdAt: u.created_at,
-      stripe_account_id: u.stripe_account_id || null,
+      stripeAccountId: u.stripe_account_id,
+      wallet_cents: u.wallet_cents,
+      email_verified: u.email_verified,
     },
   });
 });
@@ -921,7 +965,7 @@ app.post("/auth/email/verify-link", async (request, reply) => {
            email_verify_expires=NULL
        WHERE email_verify_token=$1
          AND (email_verify_expires IS NULL OR email_verify_expires > now())
-       RETURNING id, email`,
+       RETURNING id, email, phone, created_at, stripe_account_id, wallet_cents, email_verified`,
       [tokenHash]
     );
 
@@ -929,7 +973,23 @@ app.post("/auth/email/verify-link", async (request, reply) => {
       return reply.code(400).send({ ok: false, error: "Link non valido o scaduto." });
     }
 
-    return reply.send({ ok: true, verified: true });
+    const u = rows[0];
+    const token = signToken({ id: u.id });
+
+    return reply.send({
+      ok: true,
+      verified: true,
+      token,
+      user: {
+        id: u.id,
+        email: u.email,
+        phone: u.phone,
+        createdAt: u.created_at,
+        stripeAccountId: u.stripe_account_id,
+        wallet_cents: u.wallet_cents,
+        email_verified: u.email_verified,
+      },
+    });
   } catch (e) {
     request.log.error(e, "verify link failed");
     return reply.code(500).send({ ok: false, error: e?.message || "Errore verifica email" });
@@ -1622,11 +1682,106 @@ if (mode === "cash" && useWallet) {
       return reply.code(400).send({ ok: false, error: "Prezzo non impostato" });
     }
 
-    // 5) Già pagato?
-    if (row.payment_intent_id || row.paid_with_wallet) {
-      await db("ROLLBACK");
-      return reply.code(409).send({ ok: false, error: "Pagamento già avviato o completato" });
-    }
+    // 5) Già pagato / fondi bloccati?
+const matchStatus = String(row.status || "").toUpperCase();
+const payStatus = String(row.payment_status || "").toLowerCase();
+
+const alreadyHeld =
+  row.paid_with_wallet === true ||
+  matchStatus === "HELD" ||
+  payStatus === "succeeded" ||
+  payStatus === "requires_capture";
+
+if (alreadyHeld) {
+  await db("ROLLBACK");
+  return reply.code(409).send({ ok: false, error: "Pagamento già completato (fondi bloccati)." });
+}
+
+// ✅ RESUME: se c’è già un PaymentIntent non completato, restituisci il suo clientSecret
+if (row.payment_intent_id) {
+  const pi = await stripe.paymentIntents.retrieve(String(row.payment_intent_id));
+  const piStatus = String(pi.status || "");
+
+  await db("UPDATE matches SET payment_status=$1 WHERE id=$2", [piStatus, id]);
+
+  if (piStatus === "succeeded") {
+    await db("UPDATE matches SET status='HELD', paid_at=COALESCE(paid_at, now()) WHERE id=$1", [id]);
+    const { rows: m2 } = await db("SELECT * FROM matches WHERE id=$1 LIMIT 1", [id]);
+    await db("COMMIT");
+    const mm = m2[0];
+
+    return reply.send({
+      ok: true,
+      clientSecret: null,
+      amount_cents: Number(mm.amount_cents || 0),
+      payable_cents: Number(mm.amount_cents || 0),
+      voucher_code: null,
+      voucher_cents: 0,
+      match: {
+        id: mm.id,
+        requestId: mm.request_id,
+        userId: mm.user_id,
+        helperId: mm.helper_id,
+        createdAt: mm.created_at,
+        status: mm.status,
+        price_cents: mm.price_cents,
+        fee_cents: mm.fee_cents,
+        amount_cents: mm.amount_cents,
+        voucher_code: mm.voucher_code,
+        voucher_cents: mm.voucher_cents,
+        helper_payout_mode: mm.helper_payout_mode,
+        payment_intent_id: mm.payment_intent_id,
+        payment_status: mm.payment_status,
+        paid_with_wallet: mm.paid_with_wallet,
+        paidAt: mm.paid_at,
+        transfer_id: mm.transfer_id,
+        releasedAt: mm.released_at,
+      },
+    });
+  }
+
+  if (piStatus !== "canceled") {
+    const priceCents = Number(row.price_cents);
+    const feeCents = calcFeeCents(priceCents);
+    const amountCents = priceCents + feeCents;
+
+    const { rows: m2 } = await db("SELECT * FROM matches WHERE id=$1 LIMIT 1", [id]);
+    await db("COMMIT");
+    const mm = m2[0];
+
+    return reply.send({
+      ok: true,
+      clientSecret: pi.client_secret,
+      amount_cents: Number(mm.amount_cents || amountCents),
+      payable_cents: Number(mm.amount_cents || amountCents),
+      voucher_code: null,
+      voucher_cents: 0,
+      match: {
+        id: mm.id,
+        requestId: mm.request_id,
+        userId: mm.user_id,
+        helperId: mm.helper_id,
+        createdAt: mm.created_at,
+        status: mm.status,
+        price_cents: mm.price_cents,
+        fee_cents: mm.fee_cents,
+        amount_cents: mm.amount_cents,
+        voucher_code: mm.voucher_code,
+        voucher_cents: mm.voucher_cents,
+        helper_payout_mode: mm.helper_payout_mode,
+        payment_intent_id: mm.payment_intent_id,
+        payment_status: mm.payment_status,
+        paid_with_wallet: mm.paid_with_wallet,
+        paidAt: mm.paid_at,
+        transfer_id: mm.transfer_id,
+        releasedAt: mm.released_at,
+      },
+    });
+  }
+
+  // canceled: permetti di crearne uno nuovo
+  await db("UPDATE matches SET payment_intent_id=NULL, payment_status=NULL, status='PRICED' WHERE id=$1", [id]);
+}
 
     // 6) Calcolo fee + amount
     const priceCents = Number(row.price_cents);
