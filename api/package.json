@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "node index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "build": "node --check index.js"
   },
   "dependencies": {
     "@fastify/cors": "^8.5.0",
@@ -15,6 +16,7 @@
     "fastify": "^4.29.1",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^7.0.12",
+    "pg": "^8.11.5",
     "stream-chat": "^9.28.0",
     "stripe": "^20.2.0",
     "twilio": "^5.11.2"
