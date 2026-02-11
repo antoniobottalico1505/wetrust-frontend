@@ -266,7 +266,7 @@ await load({ keepMsg: true, silent: true });
       setMatch(data.match);
 
       const payable = data.payable_cents ?? data.amount_cents;
-      setMsg(`Totale: ${centsToEUR(data.amount_cents)} — Da pagare: ${centsToEUR(payable)}${vText}`);
+      setMsg(`Totale: ${centsToEUR(data.amount_cents)} — Da pagare: ${centsToEUR(payable)}`);
     } catch (err) {
       setMsg(err?.message || "Errore avvio pagamento");
     }
@@ -470,6 +470,22 @@ const priceSet = Number(match?.price_cents || 0) > 0;
         )}
       </>
     )}
+{isRequester && match && isPaid && !isReleased && (
+  <div className="card">
+    <h3>Rilascia pagamento</h3>
+    <p className="sub">Quando il servizio è completato, rilascia il pagamento all’helper.</p>
+    <button className="danger" onClick={release}>
+      Rilascia pagamento
+    </button>
+  </div>
+)}
+
+{isRequester && match && isReleased && (
+  <div className="card">
+    <h3>Pagamento rilasciato</h3>
+    <p className="sub">Hai già rilasciato il pagamento ✅</p>
+  </div>
+)}
   </div>
 )}
 
