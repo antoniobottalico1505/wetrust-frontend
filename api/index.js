@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 require("dotenv").config();
 const { randomUUID, randomBytes, createHash } = require("crypto");
