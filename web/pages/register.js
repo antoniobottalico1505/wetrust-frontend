@@ -18,10 +18,17 @@ const [showPassword, setShowPassword] = useState(false);
   try {
     setLoading(true);
 
-    await apiFetch("/auth/email/register", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
+   const data = await apiFetch("/auth/email/register", {
+  method: "POST",
+  auth: false,
+  body: { email, password },
+});
+
+if (data?.resent) {
+  setMsg("Email già registrata ma NON verificata: ti abbiamo reinviato la mail di verifica (controlla anche spam).");
+} else {
+  setMsg("Registrazione completata. Ti abbiamo inviato una mail di verifica (controlla anche spam).");
+}
 
     // ✅ niente login automatico: serve verifica email
     setMsg("Registrazione completata. Ti abbiamo inviato una mail: aprila e premi VERIFY NOW per attivare l’account.");
