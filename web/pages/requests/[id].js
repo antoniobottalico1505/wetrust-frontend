@@ -472,6 +472,9 @@ const priceSet = Number(match?.price_cents || 0) > 0;
         )}
       </>
     )}
+ </div>
+)}
+
 {isRequester && match && isPaid && !isReleased && (
   <div className="card">
     <h3>Rilascia pagamento</h3>
@@ -486,8 +489,6 @@ const priceSet = Number(match?.price_cents || 0) > 0;
   <div className="card">
     <h3>Pagamento rilasciato</h3>
     <p className="sub">Hai già rilasciato il pagamento ✅</p>
-  </div>
-)}
   </div>
 )}
 
