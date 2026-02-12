@@ -318,10 +318,12 @@ const isRequester = !!(user && match && String(user.id) === String(matchUserId))
 const isHelper = !!(user && match && String(user.id) === String(matchHelperId));
 
 const matchStatus = String(match?.status || "").toUpperCase();
+const payStatus = String(match?.payment_status || "").toLowerCase();
 const isPaid = !!(
   match?.paid_with_wallet ||
   matchStatus === "HELD" ||
-  String(match?.payment_status || "").toLowerCase() === "succeeded"
+  payStatus === "succeeded" ||
+  payStatus === "requires_capture"
 );
 const isReleased = matchStatus === "RELEASED" || matchStatus === "RELEASING";
 
