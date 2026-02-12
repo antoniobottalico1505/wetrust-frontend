@@ -266,7 +266,7 @@ await load({ keepMsg: true, silent: true });
       setMatch(data.match);
 
       const payable = data.payable_cents ?? data.amount_cents;
-      setMsg(`Totale: ${centsToEUR(data.amount_cents)} — Da pagare: ${centsToEUR(payable)}${vText}`);
+      setMsg(`Totale: ${centsToEUR(data.amount_cents)} — Da pagare: ${centsToEUR(payable)}`);
     } catch (err) {
       setMsg(err?.message || "Errore avvio pagamento");
     }
