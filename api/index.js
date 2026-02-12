@@ -2123,10 +2123,11 @@ app.post("/matches/:id/release", { preHandler: [requireAuth] }, async (request, 
     }
 
     // evita release prima del pagamento
+    const payStatus = String(row.payment_status || "").toLowerCase();
     const paid =
       row.paid_with_wallet === true ||
       String(row.status || "").toUpperCase() === "HELD" ||
-      String(row.payment_status || "").toLowerCase() === "succeeded";
+      ["succeeded", "requires_capture"].includes(payStatus);
 
     if (!paid) {
       await db("ROLLBACK");
