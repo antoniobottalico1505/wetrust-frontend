@@ -180,7 +180,25 @@ await db(`ALTER TABLE matches ALTER COLUMN helper_payout_mode SET DEFAULT 'unset
     );
   `);
   await db(`CREATE INDEX IF NOT EXISTS messages_match_created_idx ON messages (match_id, created_at);`);
+
+// LEGAL ACCEPTANCES
+await db(`
+  CREATE :contentReference[oaicite:3]{index=3}gal_acceptances (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    doc TEXT NOT NULL,           -- 'terms' | 'privacy'
+    version TEXT NOT NULL,       -- es. '2026-02-13'
+    accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ip TEXT,
+    user_agent TEXT
+  );
+`);
+await db(`CREATE UNIQUE INDEX IF NOT EXISTS legal_acceptances_uniq ON legal_acceptances (user_id, doc, version);`);
+await db(`CREATE INDEX IF NOT EXISTS legal_acceptances_user_doc_idx ON legal_acceptances (user_id, doc);`);
 }
+
+const TERMS_VERSION = process.env.TERMS_VERSION || "2026-02-13";
+const PRIVACY_VERSION = process.env.PRIVACY_VERSION || "2026-02-13";
 
 // ---------------- TWILIO ENV (COMPAT) ----------------
 // Supporta sia i nomi "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN"
@@ -392,6 +410,26 @@ async function ensureMatchAccess(request, reply, matchId) {
     transfer_id: row.transfer_id,
     releasedAt: row.released_at,
   };
+}
+
+async function ensureLegalAcceptedOr428(request, reply) {
+  const userId = String(request.user.id);
+
+  const { rows } = await db(
+    "SELECT 1 FROM legal_acceptances WHERE user_id=$1 AND doc='terms' AND version=$2 LIMIT 1",
+    [userId, TERMS_VERSION]
+  );
+
+  if (!rows[0]) {
+    reply.code(428).send({
+      ok: false,
+      error: "Devi accettare i Termini prima di continuare.",
+      termsVersion: TERMS_VERSION,
+    });
+    return false;
+  }
+
+  return true;
 }
 
 function safeNameForStream(user) {
@@ -1621,6 +1659,7 @@ app.post("/matches/:id/pay", { preHandler: [requireAuth] }, async (request, repl
   if (String(m.user_id) !== String(request.user.id)) {
     return reply.code(403).send({ ok: false, error: "Solo il richiedente può pagare" });
   }
+if (!(await ensureLegalAcceptedOr428(request, reply))) return;
 
   const voucherCodeRaw = String(request.body?.voucher_code || request.body?.voucher || "").trim();
 // Voucher non più applicabili al checkout: vanno riscattati nel wallet (profilo)
@@ -2422,6 +2461,61 @@ app.register(async function (instance) {
 
     return reply.send({ received: true });
   });
+});
+
+app.get("/legal/versions", async () => ({
+  ok: true,
+  termsVersion: TERMS_VERSION,
+  privacyVersion: PRIVACY_VERSION,
+}));
+
+app.get("/legal/me", { preHandler: [requireAuth] }, async (request, reply) => {
+  const userId = String(request.user.id);
+  const { rows } = await db(
+    "SELECT doc, version, accepted_at FROM legal_acceptances WHERE user_id=$1",
+    [userId]
+  );
+
+  const map = {};
+  for (const r of rows) map[`${r.doc}:${r.version}`] = true;
+
+  return reply.send({
+    ok: true,
+    termsAccepted: !!map[`terms:${TERMS_VERSION}`],
+    privacyAccepted: !!map[`privacy:${PRIVACY_VERSION}`],
+    termsVersion: TERMS_VERSION,
+    privacyVersion: PRIVACY_VERSION,
+  });
+});
+
+app.post("/legal/accept", { preHandler: [requireAuth] }, async (request, reply) => {
+  const userId = String(request.user.id);
+  const { doc, version } = request.body || {};
+
+  const d = String(doc || "").trim().toLowerCase();
+  const v = String(version || "").trim();
+
+  if (!["terms", "privacy"].includes(d)) {
+    return reply.code(400).send({ ok: false, error: "doc non valido" });
+  }
+
+  const expected = d === "terms" ? TERMS_VERSION : PRIVACY_VERSION;
+  if (v !== expected) {
+    return reply.code(400).send({ ok: false, error: "version non valida" });
+  }
+
+  const id = randomUUID();
+  const ip = request.ip;
+  const ua = request.headers["user-agent"] || null;
+
+  await db(
+    `INSERT INTO legal_acceptances (id, user_id, doc, version, ip, user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (user_id, doc, version) DO NOTHING`,
+    [id, userId, d, v, ip, ua]
+  );
+
+  return reply.send({ ok: true, doc: d, version: v });
 });
 
   // -------- CONTACT --------
