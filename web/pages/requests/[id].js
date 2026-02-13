@@ -505,45 +505,47 @@ const priceSet = Number(match?.price_cents || 0) > 0;
       <p className="msg">In attesa che l’helper scelga CASH o WALLET…</p>
     )}
 
-   {helperModeSet && (
-  <>
-    {!legal.termsAccepted ? (
-      <div className="card">
-        <h3>Termini e Condizioni</h3>
-        <p className="sub">
-          Prima di pagare devi accettare i{" "}
-          <Link href="/terms" className="ghost">
-            Termini e Condizioni
-          </Link>
-          .
-        </p>
-
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={termsChecked}
-            onChange={(e) => setTermsChecked(e.target.checked)}
-          />
-          <span>Ho letto e accetto i Termini</span>
-        </label>
-
-        <button disabled={!termsChecked || acceptingTerms} onClick={acceptTerms}>
-          {acceptingTerms ? "Salvo…" : "Accetta e continua"}
-        </button>
-      </div>
-    ) : (
+    {helperModeSet && (
       <>
-        {helperMode === "cash" && (
-          <button onClick={() => startPay({ useWallet: false })}>
-            Paga con carta (fondi bloccati)
-          </button>
+        {!legal.termsAccepted && (
+          <div className="card">
+            <h3>Termini e Condizioni</h3>
+            <p className="sub">
+              Prima di pagare devi accettare i{" "}
+              <Link href="/terms" className="ghost">
+                Termini e Condizioni
+              </Link>
+              .
+            </p>
+
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={termsChecked}
+                onChange={(e) => setTermsChecked(e.target.checked)}
+              />
+              <span>Ho letto e accetto i Termini</span>
+            </label>
+
+            <button disabled={!termsChecked || acceptingTerms} onClick={acceptTerms}>
+              {acceptingTerms ? "Salvo…" : "Accetta e continua"}
+            </button>
+          </div>
         )}
 
-        {helperMode === "wallet" && (
-          <button onClick={() => startPay({ useWallet: true })}>
-            Paga con wallet (fondi bloccati)
-          </button>
-      )}
+        {legal.termsAccepted && (
+          <>
+            {helperMode === "cash" && (
+              <button onClick={() => startPay({ useWallet: false })}>
+                Paga con carta (fondi bloccati)
+              </button>
+            )}
+
+            {helperMode === "wallet" && (
+              <button onClick={() => startPay({ useWallet: true })}>
+                Paga con wallet (fondi bloccati)
+              </button>
+            )}
           </>
         )}
       </>
@@ -573,19 +575,28 @@ const priceSet = Number(match?.price_cents || 0) > 0;
               <div className="card">
                 <h3>Pagamento</h3>
 
-                {clientSecret && stripePromise ? (
-                 <Elements stripe={stripePromise} options={{ clientSecret, locale: "it" }}>
-                    <PayBox match={match} onPaid={() => load({ keepMsg: true, silent: true })} />
-                  </Elements>
-                ) : (
-                  <p className="hint">
-                    I metodi di pagamento saranno disponibili e il trasferimento avverrà quando il destinatario avrà creato un account Stripe Express dalla sezione{" "}
-                    <Link href="/profile" className="ghost">
-                      Profilo
-                    </Link>
-                    .
-                  </p>
-                )}
+            {!legal.termsAccepted ? (
+  <p className="msg">
+    Prima di pagare devi accettare i{" "}
+    <Link href="/terms" className="ghost">
+      Termini e Condizioni
+    </Link>
+    .
+  </p>
+) : clientSecret && stripePromise ? (
+  <Elements stripe={stripePromise} options={{ clientSecret, locale: "it" }}>
+    <PayBox match={match} onPaid={() => load({ keepMsg: true, silent: true })} />
+  </Elements>
+) : (
+  <p className="hint">
+    I metodi di pagamento saranno disponibili e il trasferimento avverrà quando il destinatario avrà creato un account
+    Stripe Express dalla sezione{" "}
+    <Link href="/profile" className="ghost">
+      Profilo
+    </Link>
+    .
+  </p>
+)}
               </div>
             </div>
           )}

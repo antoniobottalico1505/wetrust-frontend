@@ -15,10 +15,10 @@ export default function TermsPage() {
         <section className="card">
           <h2>1) Chi siamo</h2>
           <p>
-            La piattaforma “WeTrust” (il <strong>“Servizio”</strong>) è gestita da{" "}
-            <strong>Antonio Bottalico</strong> (persona fisica), <strong>Bari, Italia</strong>{" "}
-            (il <strong>“Gestore”</strong>).
-          </p>
+  La piattaforma “WeTrust” (il <strong>“Servizio”</strong>) è gestita da{" "}
+  <strong>Antonio Bottalico</strong>, persona fisica, con sede in{" "}
+  <strong>Bari (Italia)</strong> (il <strong>“Gestore”</strong>).
+</p>
           <p>
             Email di contatto: <strong>we20trust25@gmail.com</strong>
             <br />

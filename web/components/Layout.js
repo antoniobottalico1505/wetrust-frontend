@@ -143,13 +143,14 @@ html { -webkit-text-size-adjust: 100%; }
         }
 
         .nav {
-          display: flex;
-          gap: 12px;
-          font-size: 14px;
-          margin-right: 64px; /* link un po’ più a sinistra */
-          flex-wrap: wrap;
-          justify-content: center;
-        }
+  display: grid;
+  grid-template-columns: repeat(5, max-content);
+  gap: 12px;
+  font-size: 14px;
+  margin-right: 64px;
+  justify-content: center;
+  align-items: center;
+}
 
         .nav :global(a) {
           padding: 6px 10px;
@@ -233,10 +234,14 @@ html { -webkit-text-size-adjust: 100%; }
 }
 
   .nav {
-    order: 1;
-    margin-right: 0;
-    gap: 8px;
-  }
+  order: 1;
+  margin-right: 0;
+  gap: 8px;
+
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
 
   .nav :global(a) {
     padding: 6px 9px;
