@@ -183,7 +183,7 @@ await db(`ALTER TABLE matches ALTER COLUMN helper_payout_mode SET DEFAULT 'unset
 
 // LEGAL ACCEPTANCES
 await db(`
-  CREATE :contentReference[oaicite:3]{index=3}gal_acceptances (
+  CREATE TABLE IF NOT EXISTS legal_acceptances (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     doc TEXT NOT NULL,           -- 'terms' | 'privacy'
