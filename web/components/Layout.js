@@ -21,7 +21,6 @@ export default function Layout({ title = "WeTrust", children }) {
             <Link href="/faq">FAQ</Link>
  <Link href="/trust">Trust</Link>
             <Link href="/privacy">Privacy</Link>
-<Link href="/terms">Termini</Link>
             <Link href="/login">Accedi</Link>
             <Link href="/register">Registrati</Link>
           </nav>
@@ -143,14 +142,13 @@ html { -webkit-text-size-adjust: 100%; }
         }
 
         .nav {
-  display: grid;
-  grid-template-columns: repeat(5, max-content);
-  gap: 12px;
-  font-size: 14px;
-  margin-right: 64px;
-  justify-content: center;
-  align-items: center;
-}
+          display: flex;
+          gap: 12px;
+          font-size: 14px;
+          margin-right: 64px; /* link un po’ più a sinistra */
+          flex-wrap: wrap;
+          justify-content: center;
+        }
 
         .nav :global(a) {
           padding: 6px 10px;
@@ -234,14 +232,10 @@ html { -webkit-text-size-adjust: 100%; }
 }
 
   .nav {
-  order: 1;
-  margin-right: 0;
-  gap: 8px;
-
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-}
+    order: 1;
+    margin-right: 0;
+    gap: 8px;
+  }
 
   .nav :global(a) {
     padding: 6px 9px;

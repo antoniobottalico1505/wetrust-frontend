@@ -147,10 +147,6 @@ const [helperStats, setHelperStats] = useState(null);
 
   const [clientSecret, setClientSecret] = useState(null);
 
-const [legal, setLegal] = useState({ termsAccepted: false, termsVersion: null });
-const [termsChecked, setTermsChecked] = useState(false);
-const [acceptingTerms, setAcceptingTerms] = useState(false);
-
  const [stripePromise, setStripePromise] = useState(null);
  useEffect(() => {
  // ✅ Stripe solo in browser (evita crash SSR)
@@ -186,18 +182,6 @@ if (m && (m.paid_with_wallet || String(m.status || "").toUpperCase() === "HELD" 
 }
 
 setHelperStats(data.helper || null);
-const token = getToken();
-    if (token) {
-      try {
-        const l = await apiAuthFetch(`/legal/me`);
-        setLegal({
-          termsAccepted: !!l.termsAccepted,
-          termsVersion: l.termsVersion || null,
-        });
-      } catch {
-        // non blocco la pagina se fallisce
-      }
-    }
   } catch (err) {
     if (!silent) {
       setMsg(err?.message || "Errore caricamento");
@@ -206,34 +190,6 @@ const token = getToken();
     setLoading(false);
   }
 }
-
-async function acceptTerms() {
-    setMsg("");
-    if (!requireAuthOrMessage()) return;
-    if (!termsChecked) {
-      setMsg("Spunta la casella per accettare i Termini.");
-      return;
-    }
-
-    setAcceptingTerms(true);
-    try {
-      // se per qualche motivo termsVersion non c’è, prova a prenderla dal backend
-      const v =
-        legal.termsVersion ||
-        (await apiAuthFetch("/legal/versions")).termsVersion;
-      await apiAuthFetch("/legal/accept", {
-        method: "POST",
-        body: { doc: "terms", version: v },
-      });
-
-      setLegal({ termsAccepted: true, termsVersion: v });
-      setMsg("Termini accettati ✅ Ora puoi procedere al pagamento.");
-    } catch (err) {
-      setMsg(err?.message || "Errore accettazione termini");
-    } finally {
-      setAcceptingTerms(false);
-    }
-  }
 
   useEffect(() => {
     if (id) load();
@@ -281,10 +237,6 @@ await load({ keepMsg: true, silent: true });
 
   async function startPay({ useWallet = false, withVoucher = false } = {}) {
     setMsg("");
-  if (!legal.termsAccepted) {
-    setMsg("Prima di pagare devi accettare i Termini e Condizioni.");
-    return;
-  }
     if (!match?.id) return setMsg("Match non valido.");
     if (!requireAuthOrMessage()) return;
 
@@ -507,52 +459,19 @@ const priceSet = Number(match?.price_cents || 0) > 0;
 
     {helperModeSet && (
       <>
-        {!legal.termsAccepted && (
-          <div className="card">
-            <h3>Termini e Condizioni</h3>
-            <p className="sub">
-              Prima di pagare devi accettare i{" "}
-              <Link href="/terms" className="ghost">
-                Termini e Condizioni
-              </Link>
-              .
-            </p>
-
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={termsChecked}
-                onChange={(e) => setTermsChecked(e.target.checked)}
-              />
-              <span>Ho letto e accetto i Termini</span>
-            </label>
-
-            <button disabled={!termsChecked || acceptingTerms} onClick={acceptTerms}>
-              {acceptingTerms ? "Salvo…" : "Accetta e continua"}
-            </button>
-          </div>
+        {helperMode === "cash" && (
+          <button onClick={() => startPay({ useWallet: false })}>
+            Paga con carta (fondi bloccati)
+          </button>
         )}
 
-        {legal.termsAccepted && (
-          <>
-            {helperMode === "cash" && (
-              <button onClick={() => startPay({ useWallet: false })}>
-                Paga con carta (fondi bloccati)
-              </button>
-            )}
-
-            {helperMode === "wallet" && (
-              <button onClick={() => startPay({ useWallet: true })}>
-                Paga con wallet (fondi bloccati)
-              </button>
-            )}
-          </>
+        {helperMode === "wallet" && (
+          <button onClick={() => startPay({ useWallet: true })}>
+            Paga con wallet (fondi bloccati)
+          </button>
         )}
       </>
     )}
-  </div>
-)}
-
 {isRequester && match && isPaid && !isReleased && (
   <div className="card">
     <h3>Rilascia pagamento</h3>
@@ -569,52 +488,32 @@ const priceSet = Number(match?.price_cents || 0) > 0;
     <p className="sub">Hai già rilasciato il pagamento ✅</p>
   </div>
 )}
+  </div>
+)}
 
               </div>
 
               <div className="card">
                 <h3>Pagamento</h3>
 
-            {!legal.termsAccepted ? (
-  <p className="msg">
-    Prima di pagare devi accettare i{" "}
-    <Link href="/terms" className="ghost">
-      Termini e Condizioni
-    </Link>
-    .
-  </p>
-) : clientSecret && stripePromise ? (
-  <Elements stripe={stripePromise} options={{ clientSecret, locale: "it" }}>
-    <PayBox match={match} onPaid={() => load({ keepMsg: true, silent: true })} />
-  </Elements>
-) : (
-  <p className="hint">
-    I metodi di pagamento saranno disponibili e il trasferimento avverrà quando il destinatario avrà creato un account
-    Stripe Express dalla sezione{" "}
-    <Link href="/profile" className="ghost">
-      Profilo
-    </Link>
-    .
-  </p>
-)}
+                {clientSecret && stripePromise ? (
+                 <Elements stripe={stripePromise} options={{ clientSecret, locale: "it" }}>
+                    <PayBox match={match} onPaid={() => load({ keepMsg: true, silent: true })} />
+                  </Elements>
+                ) : (
+                  <p className="hint">
+                    I metodi di pagamento saranno disponibili e il trasferimento avverrà quando il destinatario avrà creato un account Stripe Express dalla sezione{" "}
+                    <Link href="/profile" className="ghost">
+                      Profilo
+                    </Link>
+                    .
+                  </p>
+                )}
               </div>
             </div>
           )}
 
           <style jsx>{`
-            .check {
-              display: flex;
-              align-items: center;
-              gap: 10px;
-              margin: 10px 0 12px;
-              font-size: 14px;
-              opacity: 0.95;
-            }
-            .check input {
-              width: 18px;
-              height: 18px;
-              cursor: pointer;
-            }
             .msgTop {
               font-size: 13px;
               margin: 6px 0 10px;
