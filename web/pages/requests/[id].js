@@ -367,12 +367,17 @@ const isHelper = !!(user && match && String(user.id) === String(matchHelperId));
 
 const matchStatus = String(match?.status || "").toUpperCase();
 const payStatus = String(match?.payment_status || "").toLowerCase();
+
+// ✅ "Pagato davvero" (wallet oppure Stripe autorizzato)
 const isPaid = !!(
   match?.paid_with_wallet ||
-  matchStatus === "HELD" ||
   payStatus === "succeeded" ||
   payStatus === "requires_capture"
 );
+
+// ✅ Per mostrare il tasto "Rilascia pagamento" anche se il backend usa match.status=HELD
+const canRelease = isPaid || matchStatus === "HELD";
+
 const isReleased = matchStatus === "RELEASED" || matchStatus === "RELEASING";
 
 const helperMode = String(match?.helper_payout_mode || "").toLowerCase();
@@ -505,45 +510,47 @@ const priceSet = Number(match?.price_cents || 0) > 0;
       <p className="msg">In attesa che l’helper scelga CASH o WALLET…</p>
     )}
 
-   {helperModeSet && (
-  <>
-    {!legal.termsAccepted ? (
-      <div className="card">
-        <h3>Termini e Condizioni</h3>
-        <p className="sub">
-          Prima di pagare devi accettare i{" "}
-          <Link href="/terms" className="ghost">
-            Termini e Condizioni
-          </Link>
-          .
-        </p>
-
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={termsChecked}
-            onChange={(e) => setTermsChecked(e.target.checked)}
-          />
-          <span>Ho letto e accetto i Termini</span>
-        </label>
-
-        <button disabled={!termsChecked || acceptingTerms} onClick={acceptTerms}>
-          {acceptingTerms ? "Salvo…" : "Accetta e continua"}
-        </button>
-      </div>
-    ) : (
+    {helperModeSet && (
       <>
-        {helperMode === "cash" && (
-          <button onClick={() => startPay({ useWallet: false })}>
-            Paga con carta (fondi bloccati)
-          </button>
+        {!legal.termsAccepted && (
+          <div className="card">
+            <h3>Termini e Condizioni</h3>
+            <p className="sub">
+              Prima di pagare devi accettare i{" "}
+              <Link href="/terms" className="ghost">
+                Termini e Condizioni
+              </Link>
+              .
+            </p>
+
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={termsChecked}
+                onChange={(e) => setTermsChecked(e.target.checked)}
+              />
+              <span>Ho letto e accetto i Termini</span>
+            </label>
+
+            <button disabled={!termsChecked || acceptingTerms} onClick={acceptTerms}>
+              {acceptingTerms ? "Salvo…" : "Accetta e continua"}
+            </button>
+          </div>
         )}
 
-        {helperMode === "wallet" && (
-          <button onClick={() => startPay({ useWallet: true })}>
-            Paga con wallet (fondi bloccati)
-          </button>
-      )}
+        {legal.termsAccepted && (
+          <>
+            {helperMode === "cash" && (
+              <button onClick={() => startPay({ useWallet: false })}>
+                Paga con carta (fondi bloccati)
+              </button>
+            )}
+
+            {helperMode === "wallet" && (
+              <button onClick={() => startPay({ useWallet: true })}>
+                Paga con wallet (fondi bloccati)
+              </button>
+            )}
           </>
         )}
       </>
@@ -551,7 +558,7 @@ const priceSet = Number(match?.price_cents || 0) > 0;
   </div>
 )}
 
-{isRequester && match && isPaid && !isReleased && (
+{isRequester && match && canRelease && !isReleased && (
   <div className="card">
     <h3>Rilascia pagamento</h3>
     <p className="sub">Quando il servizio è completato, rilascia il pagamento all’helper.</p>
