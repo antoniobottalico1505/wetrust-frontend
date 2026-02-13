@@ -21,6 +21,7 @@ export default function Layout({ title = "WeTrust", children }) {
             <Link href="/faq">FAQ</Link>
  <Link href="/trust">Trust</Link>
             <Link href="/privacy">Privacy</Link>
+<Link href="/terms">Termini</Link>
             <Link href="/login">Accedi</Link>
             <Link href="/register">Registrati</Link>
           </nav>
