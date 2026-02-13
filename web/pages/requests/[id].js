@@ -259,11 +259,6 @@ await load({ keepMsg: true, silent: true });
     if (!match?.id) return setMsg("Match non valido.");
     if (!requireAuthOrMessage()) return;
 
-    if (!legal.termsAccepted) {
-      setMsg("Prima di pagare devi accettare i Termini e Condizioni.");
-      return;
-    }
-
     try {
       const cents = eurToCents(priceEUR);
       if (!cents || cents <= 0) {
@@ -286,6 +281,10 @@ await load({ keepMsg: true, silent: true });
 
   async function startPay({ useWallet = false, withVoucher = false } = {}) {
     setMsg("");
+  if (!legal.termsAccepted) {
+    setMsg("Prima di pagare devi accettare i Termini e Condizioni.");
+    return;
+  }
     if (!match?.id) return setMsg("Match non valido.");
     if (!requireAuthOrMessage()) return;
 
@@ -544,10 +543,12 @@ const priceSet = Number(match?.price_cents || 0) > 0;
           <button onClick={() => startPay({ useWallet: true })}>
             Paga con wallet (fondi bloccati)
           </button>
+      )}
+          </>
         )}
       </>
     )}
-  </>
+  </div>
 )}
 
 {isRequester && match && isPaid && !isReleased && (
