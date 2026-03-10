@@ -238,9 +238,14 @@ useEffect(() => {
 
           <button disabled={loading}>{loading ? "Accesso…" : "Accedi"}</button>
 
-          <p className="small">
-            Non hai un account? <Link href="/register">Registrati</Link>
-          </p>
+          <div className="emailActions">
+            <p className="small">
+              <Link href="/reset-password">Password dimenticata?</Link>
+            </p>
+            <p className="small">
+              Non hai un account? <Link href="/register">Registrati</Link>
+            </p>
+          </div>
         </form>
       ) : (
         <>
@@ -356,6 +361,7 @@ useEffect(() => {
           color: #020617;
         }
         button:disabled { opacity: 0.65; cursor: not-allowed; }
+        .emailActions { display:flex; flex-direction:column; gap:4px; }
         .small { font-size: 13px; color:#cbd5e1; margin: 6px 0 0; }
         .small :global(a) { color:#00b4ff; text-decoration: underline; }
         .msg { margin-top: 10px; color:#e5e7eb; }
