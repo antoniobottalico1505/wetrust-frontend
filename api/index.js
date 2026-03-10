@@ -45,7 +45,9 @@ async function initDb() {
       trust_points NUMERIC(12,2) NOT NULL DEFAULT 0,
 email_verified BOOLEAN NOT NULL DEFAULT false,
 email_verify_token TEXT,
-email_verify_expires TIMESTAMPTZ
+email_verify_expires TIMESTAMPTZ,
+password_reset_token TEXT,
+password_reset_expires TIMESTAMPTZ
     );
   `);
 
@@ -57,7 +59,10 @@ await db(`ALTER TABLE users ALTER COLUMN trust_points TYPE NUMERIC(12,2) USING t
 await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false;`);
 await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT;`);
 await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_expires TIMESTAMPTZ;`);
+await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token TEXT;`);
+await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMPTZ;`);
 await db(`CREATE INDEX IF NOT EXISTS users_email_verify_token_idx ON users (email_verify_token) WHERE email_verify_token IS NOT NULL;`);
+await db(`CREATE INDEX IF NOT EXISTS users_password_reset_token_idx ON users (password_reset_token) WHERE password_reset_token IS NOT NULL;`);
 
   // Email unique (case-insensitive) – semplice: indice su lower(email)
   await db(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_uniq ON users (lower(email)) WHERE email IS NOT NULL;`);
@@ -495,7 +500,7 @@ await app.register(cors, {
         })
       : null;
 
-const WEB_BASE_URL = process.env.WEB_BASE_URL || "http://wetrust.club";
+const WEB_BASE_URL = process.env.WEB_BASE_URL || "http://www.wetrust.club";
 
 function hashToken(t) {
   return createHash("sha256").update(String(t)).digest("hex");
@@ -526,6 +531,33 @@ async function sendVerifyEmail(toEmail, tokenPlain) {
           </a>
         </p>
         <p style="opacity:.7;font-size:12px;">Se non hai richiesto tu, ignora questa email.</p>
+      </div>
+    `,
+  });
+}
+
+async function sendPasswordResetEmail(toEmail, tokenPlain) {
+  if (!transporter) throw new Error("SMTP non configurato: impossibile inviare email di reset password.");
+
+  const link = `${WEB_BASE_URL}/reset-password?token=${encodeURIComponent(tokenPlain)}`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: toEmail,
+    subject: "WeTrust — Reset your password",
+    html: `
+      <div style="font-family:system-ui,Segoe UI,Roboto,Arial;">
+        <h2>Reset della password</h2>
+        <p>Abbiamo ricevuto una richiesta di reset password per il tuo account WeTrust.</p>
+        <p>Per scegliere una nuova password, clicca il pulsante qui sotto:</p>
+        <p>
+          <a href="${link}"
+             style="display:inline-block;padding:12px 18px;border-radius:10px;
+                    background:#00b4ff;color:#020617;text-decoration:none;font-weight:800;">
+            RESET PASSWORD
+          </a>
+        </p>
+        <p style="opacity:.7;font-size:12px;">Se non hai richiesto tu il reset, ignora questa email. Il link scade automaticamente.</p>
       </div>
     `,
   });
@@ -984,6 +1016,97 @@ app.post("/auth/email/register", async (request, reply) => {
       email_verified: u.email_verified,
     },
   });
+});
+
+// ---------- AUTH: REQUEST PASSWORD RESET ----------
+app.post("/auth/email/request-password-reset", async (request, reply) => {
+  try {
+    if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
+    if (!transporter) {
+      return reply.code(500).send({ ok: false, error: "SMTP non configurato: impossibile inviare email di reset password." });
+    }
+
+    const email = String(request.body?.email || "").trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      return reply.code(400).send({ ok: false, error: "Email non valida." });
+    }
+
+    const { rows } = await db(
+      `SELECT id, email, email_verified, password_hash
+         FROM users
+        WHERE lower(email)=lower($1)
+        LIMIT 1`,
+      [email]
+    );
+
+    const user = rows[0];
+
+    if (user && user.password_hash && user.email_verified === true) {
+      const tokenPlain = newVerifyToken();
+      const tokenHash = hashToken(tokenPlain);
+
+      await db(
+        `UPDATE users
+            SET password_reset_token=$1,
+                password_reset_expires=now() + interval '1 hour'
+          WHERE id=$2`,
+        [tokenHash, String(user.id)]
+      );
+
+      await sendPasswordResetEmail(email, tokenPlain);
+    }
+
+    return reply.send({
+      ok: true,
+      sent: true,
+      message: "Se l'email esiste, ti abbiamo inviato un link per reimpostare la password.",
+    });
+  } catch (e) {
+    request.log.error(e, "password reset request failed");
+    return reply.code(500).send({ ok: false, error: e?.message || "Errore richiesta reset password" });
+  }
+});
+
+// ---------- AUTH: RESET PASSWORD ----------
+app.post("/auth/email/reset-password", async (request, reply) => {
+  try {
+    if (!pool) return reply.code(500).send({ ok: false, error: "Database non configurato." });
+
+    const tokenPlain = String(request.body?.token || "").trim();
+    const password = String(request.body?.password || "");
+    const passwordConfirm = String(request.body?.passwordConfirm || "");
+
+    if (!tokenPlain) return reply.code(400).send({ ok: false, error: "Token mancante." });
+    if (!password || password.length < 8) {
+      return reply.code(400).send({ ok: false, error: "La nuova password deve avere almeno 8 caratteri." });
+    }
+    if (password !== passwordConfirm) {
+      return reply.code(400).send({ ok: false, error: "Le password non coincidono." });
+    }
+
+    const tokenHash = hashToken(tokenPlain);
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const { rows } = await db(
+      `UPDATE users
+          SET password_hash=$1,
+              password_reset_token=NULL,
+              password_reset_expires=NULL
+        WHERE password_reset_token=$2
+          AND (password_reset_expires IS NULL OR password_reset_expires > now())
+      RETURNING id, email`,
+      [passwordHash, tokenHash]
+    );
+
+    if (!rows[0]) {
+      return reply.code(400).send({ ok: false, error: "Link non valido o scaduto." });
+    }
+
+    return reply.send({ ok: true, reset: true, message: "Password aggiornata correttamente." });
+  } catch (e) {
+    request.log.error(e, "password reset failed");
+    return reply.code(500).send({ ok: false, error: e?.message || "Errore reset password" });
+  }
 });
 
 // ---------- AUTH: EMAIL VERIFY LINK ----------
